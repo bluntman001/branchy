@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 import { FiSettings, FiMinus, FiSquare, FiX } from 'react-icons/fi';
+import branchyIcon from '../assets/branchy.png';
 
 import { FolderTree } from './components/FolderTree';
 import { FileBrowser } from './components/FileBrowser';
@@ -139,13 +140,16 @@ export function App() {
           WebkitAppRegion: 'drag' as never,
         } as React.CSSProperties}
       >
-        {/* App name */}
-        <span
-          className="text-xs font-semibold tracking-wide mr-2"
-          style={{ color: '#3b82f6', WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
+        {/* App icon + name */}
+        <div
+          className="flex items-center gap-2 mr-2 flex-shrink-0"
+          style={{ WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
         >
-          Branchy
-        </span>
+          <img src={branchyIcon} width={20} height={20} draggable={false} style={{ objectFit: 'contain', borderRadius: 4 }} />
+          <span className="text-xs font-semibold tracking-wide" style={{ color: '#e5e5e5' }}>
+            Branchy
+          </span>
+        </div>
 
         {/* Breadcrumbs */}
         <div
@@ -193,11 +197,11 @@ export function App() {
       </div>
 
       {/* Three-panel layout */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden" style={{ padding: '6px 6px 0 6px', gap: 0 }}>
         {/* Left panel — Folder tree */}
         <div
-          className="flex-shrink-0 overflow-hidden"
-          style={{ width: leftWidth, minWidth: LEFT_MIN }}
+          className="flex-shrink-0 overflow-hidden rounded-lg"
+          style={{ width: leftWidth, minWidth: LEFT_MIN, border: '1px solid #2a2a2a', background: '#161616' }}
         >
           <FolderTree
             currentPath={dir.currentPath}
@@ -209,6 +213,7 @@ export function App() {
         {/* Divider — left / center */}
         <div
           className="fp-divider"
+          style={{ background: 'transparent' }}
           onMouseDown={(e) => {
             leftDrag.current = { startX: e.clientX, startW: leftWidth };
             document.body.style.cursor     = 'col-resize';
@@ -217,7 +222,7 @@ export function App() {
         />
 
         {/* Center panel — File browser */}
-        <div className="flex-1 overflow-hidden min-w-0">
+        <div className="flex-1 overflow-hidden min-w-0 rounded-lg mx-1.5" style={{ border: '1px solid #2a2a2a' }}>
           <FileBrowser
             entries={dir.entries}
             loading={dir.loading}
@@ -240,6 +245,7 @@ export function App() {
         {/* Divider — center / right */}
         <div
           className="fp-divider"
+          style={{ background: 'transparent' }}
           onMouseDown={(e) => {
             rightDrag.current = { startX: e.clientX, startW: rightWidth };
             document.body.style.cursor     = 'col-resize';
@@ -249,8 +255,8 @@ export function App() {
 
         {/* Right panel — AI chat */}
         <div
-          className="flex-shrink-0 overflow-hidden"
-          style={{ width: rightWidth, minWidth: RIGHT_MIN }}
+          className="flex-shrink-0 overflow-hidden rounded-lg"
+          style={{ width: rightWidth, minWidth: RIGHT_MIN, border: '1px solid #2a2a2a', background: '#161616' }}
         >
           <ChatPanel
             currentPath={dir.currentPath}
@@ -263,13 +269,13 @@ export function App() {
 
       {/* Status bar */}
       <div
-        className="flex items-center gap-4 px-4 border-t flex-shrink-0"
+        className="flex items-center gap-4 px-4 flex-shrink-0"
         style={{
-          borderColor: '#2a2a2a',
-          background: '#161616',
+          background: 'transparent',
           height: 28,
           fontSize: 11,
           color: '#555',
+          paddingBottom: 4,
         }}
       >
         <span>{dir.entries.length} items</span>
