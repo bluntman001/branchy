@@ -1,0 +1,151 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg-primary: #0f0f0f;
+  --bg-panel: #1a1a1a;
+  --bg-panel-hover: #222222;
+  --border: #2a2a2a;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --text-primary: #e5e5e5;
+  --text-secondary: #888888;
+  --text-muted: #555555;
+
+  /* Radix UI theme tokens */
+  --radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 13px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track { background: var(--bg-panel); }
+::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+
+.font-mono {
+  font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+}
+
+/* ── Radix Context Menu ─────────────────────────────── */
+.fp-ctx-content {
+  min-width: 200px;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  z-index: 9999;
+  animation: fp-ctx-in 120ms ease;
+}
+
+@keyframes fp-ctx-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.fp-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: #d4d4d4;
+  cursor: default;
+  user-select: none;
+  outline: none;
+  transition: background 80ms;
+}
+.fp-ctx-item:hover,
+.fp-ctx-item[data-highlighted] {
+  background: #2a2a2a;
+  color: #fff;
+}
+.fp-ctx-item.danger { color: #f87171; }
+.fp-ctx-item.danger:hover,
+.fp-ctx-item.danger[data-highlighted] { background: rgba(239,68,68,0.12); }
+
+.fp-ctx-item .shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: #555;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.fp-ctx-separator {
+  height: 1px;
+  background: #2a2a2a;
+  margin: 4px 0;
+}
+
+.fp-ctx-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fp-ctx-sub-trigger[data-state=open] {
+  background: #2a2a2a;
+}
+.fp-ctx-sub-content {
+  min-width: 160px;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  z-index: 9999;
+  animation: fp-ctx-in 100ms ease;
+}
+
+/* ── Resizable panel divider ────────────────────────── */
+.fp-divider {
+  width: 4px;
+  flex-shrink: 0;
+  background: #2a2a2a;
+  cursor: col-resize;
+  transition: background 150ms;
+  position: relative;
+  z-index: 10;
+}
+.fp-divider:hover,
+.fp-divider:active {
+  background: #3b82f6;
+}
+
+/* ── Radix Collapsible (sidebar sections) ───────────── */
+.fp-section-content[data-state=open] {
+  animation: fp-collapsible-down 150ms ease;
+}
+.fp-section-content[data-state=closed] {
+  animation: fp-collapsible-up 120ms ease;
+}
+@keyframes fp-collapsible-down {
+  from { height: 0; opacity: 0; }
+  to   { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+@keyframes fp-collapsible-up {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to   { height: 0; opacity: 0; }
+}
