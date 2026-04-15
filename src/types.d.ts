@@ -68,6 +68,14 @@ export interface FileAPI {
     set(key: string, value: unknown): Promise<void>;
     getAll(): Promise<AppSettings>;
     getHomeDir(): Promise<string>;
+    getSpecialPaths(): Promise<{
+      home: string;
+      desktop: string;
+      downloads: string;
+      documents: string;
+      music: string;
+      pictures: string;
+    }>;
   };
   window: {
     minimize(): Promise<void>;

@@ -169,6 +169,22 @@ function registerIpcHandlers() {
   ipcMain.handle('settings:getHomeDir', () => {
     return os.homedir();
   });
+
+  ipcMain.handle('settings:getSpecialPaths', () => {
+    const { app } = require('electron') as typeof import('electron');
+    const safe = (name: Parameters<typeof app.getPath>[0], fallback: string) => {
+      try { return app.getPath(name); } catch { return fallback; }
+    };
+    const home = os.homedir();
+    return {
+      home,
+      desktop:   safe('desktop',   home + '\\Desktop'),
+      downloads: safe('downloads', home + '\\Downloads'),
+      documents: safe('documents', home + '\\Documents'),
+      music:     safe('music',     home + '\\Music'),
+      pictures:  safe('pictures',  home + '\\Pictures'),
+    };
+  });
 }
 
 function createWindow(): void {

@@ -42,19 +42,28 @@ async function loadChildren(dirPath: string): Promise<TreeNode[]> {
 }
 
 // ── special places ────────────────────────────────────
-interface Place {
-  label: string;
-  place: SpecialPlace;
-  getPath: (home: string) => string;
+interface SpecialPaths {
+  home: string;
+  desktop: string;
+  downloads: string;
+  documents: string;
+  music: string;
+  pictures: string;
 }
 
-const PLACES: Place[] = [
-  { label: 'Home',      place: 'home',      getPath: (h) => h },
-  { label: 'Desktop',   place: 'desktop',   getPath: (h) => h + '\\Desktop' },
-  { label: 'Downloads', place: 'downloads', getPath: (h) => h + '\\Downloads' },
-  { label: 'Documents', place: 'documents', getPath: (h) => h + '\\Documents' },
-  { label: 'Music',     place: 'music',     getPath: (h) => h + '\\Music' },
-  { label: 'Pictures',  place: 'pictures',  getPath: (h) => h + '\\Pictures' },
+interface PlaceEntry {
+  label: string;
+  place: SpecialPlace;
+  key: keyof SpecialPaths;
+}
+
+const PLACE_ENTRIES: PlaceEntry[] = [
+  { label: 'Home',      place: 'home',      key: 'home' },
+  { label: 'Desktop',   place: 'desktop',   key: 'desktop' },
+  { label: 'Downloads', place: 'downloads', key: 'downloads' },
+  { label: 'Documents', place: 'documents', key: 'documents' },
+  { label: 'Music',     place: 'music',     key: 'music' },
+  { label: 'Pictures',  place: 'pictures',  key: 'pictures' },
 ];
 
 // ── FolderTree root ───────────────────────────────────
@@ -65,8 +74,8 @@ interface FolderTreeProps {
 }
 
 export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps) {
-  const [homeDir, setHomeDir]       = useState('');
-  const [drives, setDrives]         = useState<DriveInfo[]>([]);
+  const [specialPaths, setSpecialPaths] = useState<SpecialPaths | null>(null);
+  const [drives, setDrives]            = useState<DriveInfo[]>([]);
   const [mostUsed, setMostUsed]     = useState<MostUsedEntry[]>([]);
   const [driveNodes, setDriveNodes] = useState<Record<string, TreeNode[]>>({});
   const [driveOpen, setDriveOpen]   = useState<Record<string, boolean>>({});
@@ -80,12 +89,12 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
 
   useEffect(() => {
     async function init() {
-      const [home, driveList, mu] = await Promise.all([
-        window.fileAPI.settings.getHomeDir(),
+      const [paths, driveList, mu] = await Promise.all([
+        window.fileAPI.settings.getSpecialPaths(),
         window.fileAPI.getDrives(),
         window.fileAPI.nav.getMostUsed(8),
       ]);
-      setHomeDir(home);
+      setSpecialPaths(paths);
       setDrives(driveList);
       setMostUsed(mu);
     }
@@ -153,8 +162,8 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
 
       {/* ── Local ─────────────────────────── */}
       <Section label="Local" open={localOpen} onToggle={() => setLocalOpen((v) => !v)}>
-        {PLACES.map((p) => {
-          const placePath = homeDir ? p.getPath(homeDir) : '';
+        {PLACE_ENTRIES.map((p) => {
+          const placePath = specialPaths ? specialPaths[p.key] : '';
           return (
             <PlainRow
               key={p.label}

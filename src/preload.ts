@@ -25,10 +25,11 @@ contextBridge.exposeInMainWorld('fileAPI', {
   },
 
   settings: {
-    get:        (key: string)               => ipcRenderer.invoke('settings:get', key),
-    set:        (key: string, val: unknown) => ipcRenderer.invoke('settings:set', key, val),
-    getAll:     ()                          => ipcRenderer.invoke('settings:getAll'),
-    getHomeDir: ()                          => ipcRenderer.invoke('settings:getHomeDir'),
+    get:             (key: string)               => ipcRenderer.invoke('settings:get', key),
+    set:             (key: string, val: unknown) => ipcRenderer.invoke('settings:set', key, val),
+    getAll:          ()                          => ipcRenderer.invoke('settings:getAll'),
+    getHomeDir:      ()                          => ipcRenderer.invoke('settings:getHomeDir'),
+    getSpecialPaths: ()                          => ipcRenderer.invoke('settings:getSpecialPaths'),
   },
 
   window: {

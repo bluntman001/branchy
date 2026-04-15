@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   PiArrowUp, PiArrowLeft, PiArrowRight,
   PiArrowClockwise, PiFolderPlus, PiMagnifyingGlass,
@@ -332,7 +332,14 @@ export function FileBrowser({
           className="flex-1 overflow-y-auto"
           onClick={() => onClearSelection()}
         >
-          {loading ? (
+          {/* Loading bar — visible during re-loads without hiding the list */}
+          {loading && (
+            <div style={{ height: 2, background: '#1a1a1a', position: 'relative', overflow: 'hidden' }}>
+              <div className="fp-loading-bar" />
+            </div>
+          )}
+
+          {loading && sorted.length === 0 ? (
             <div className="flex items-center justify-center h-32">
               <span className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
@@ -564,6 +571,8 @@ interface ThumbCardProps {
   onOpenWith: (exePath: string) => void;
 }
 
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg']);
+
 function ThumbCard({
   entry, size, isSelected, canPaste, selectedCount,
   onRowClick, onDoubleClick, onRightClick, onDragStart,
@@ -571,6 +580,17 @@ function ThumbCard({
 }: ThumbCardProps) {
   const shellIconUrl = useShellIcon(entry.path, entry.extension, entry.isDirectory);
   const iconSize = Math.round(size * 0.55);
+  const isImage = IMAGE_EXTS.has(entry.extension);
+
+  const [thumbUrl, setThumbUrl] = useState('');
+  useEffect(() => {
+    if (!isImage) return;
+    let alive = true;
+    window.fileAPI.getFilePreview(entry.path).then((p) => {
+      if (alive && p.type === 'image') setThumbUrl(p.content);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [entry.path, isImage]);
 
   return (
     <FileContextMenu
@@ -605,17 +625,25 @@ function ThumbCard({
         onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#1e1e1e'; }}
         onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
       >
-        {/* Icon area */}
+        {/* Icon / thumbnail area */}
         <div
-          className="flex items-center justify-center rounded mb-1.5 flex-shrink-0"
-          style={{ width: size, height: size }}
+          className="flex items-center justify-center rounded mb-1.5 flex-shrink-0 overflow-hidden"
+          style={{ width: size, height: size, background: thumbUrl ? '#111' : 'transparent' }}
         >
-          <FileIcon
-            extension={entry.extension}
-            isDirectory={entry.isDirectory}
-            size={iconSize}
-            shellIconUrl={shellIconUrl}
-          />
+          {thumbUrl ? (
+            <img
+              src={thumbUrl}
+              draggable={false}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }}
+            />
+          ) : (
+            <FileIcon
+              extension={entry.extension}
+              isDirectory={entry.isDirectory}
+              size={iconSize}
+              shellIconUrl={shellIconUrl}
+            />
+          )}
         </div>
 
         {/* Name */}

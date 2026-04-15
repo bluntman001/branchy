@@ -39,6 +39,7 @@
     "eslint-plugin-import": "^2.32.0",
     "fork-ts-checker-webpack-plugin": "^7.3.0",
     "node-loader": "^2.1.0",
+    "png-to-ico": "^3.0.1",
     "postcss": "^8.5.9",
     "postcss-loader": "^8.2.1",
     "style-loader": "^3.3.4",

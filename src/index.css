@@ -119,6 +119,21 @@ html, body, #root {
   animation: fp-ctx-in 100ms ease;
 }
 
+/* ── File list loading bar ──────────────────────────── */
+.fp-loading-bar {
+  position: absolute;
+  top: 0; left: 0;
+  height: 2px;
+  width: 40%;
+  background: #3b82f6;
+  border-radius: 1px;
+  animation: fp-loading-slide 1.2s ease-in-out infinite;
+}
+@keyframes fp-loading-slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+
 /* ── Resizable panel divider ────────────────────────── */
 .fp-divider {
   width: 4px;

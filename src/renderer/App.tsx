@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
-import { FiSettings, FiMinus, FiSquare, FiX } from 'react-icons/fi';
+import { FiSettings, FiMinus, FiSquare, FiX, FiMessageSquare } from 'react-icons/fi';
 import branchyIcon from '../assets/branchy.png';
 
 import { FolderTree } from './components/FolderTree';
@@ -28,9 +28,10 @@ const RIGHT_MIN = 220;
 const RIGHT_MAX = 500;
 
 export function App() {
-  const [settings, setSettings]     = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings]         = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [chatOpen, setChatOpen]         = useState(true);
 
   // Resizable panels
   const [leftWidth, setLeftWidth]   = useState(220);
@@ -129,7 +130,7 @@ export function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: '#0f0f0f' }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', boxSizing: 'border-box' }}>
       {/* Title bar / Header */}
       <div
         className="flex items-center gap-2 px-4 border-b flex-shrink-0"
@@ -161,9 +162,17 @@ export function App() {
 
         {/* Window controls */}
         <div
-          className="flex items-center gap-1 ml-2"
+          className="flex items-center gap-1 ml-2 pr-1"
           style={{ WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
         >
+          <button
+            onClick={() => setChatOpen((v) => !v)}
+            className="p-1.5 rounded hover:bg-white/10 transition-colors"
+            style={{ color: chatOpen ? '#3b82f6' : '#666' }}
+            title="Toggle AI Chat"
+          >
+            <FiMessageSquare size={14} />
+          </button>
           <button
             onClick={() => setSettingsOpen(true)}
             className="p-1.5 rounded hover:bg-white/10 transition-colors"
@@ -242,29 +251,33 @@ export function App() {
           />
         </div>
 
-        {/* Divider — center / right */}
-        <div
-          className="fp-divider"
-          style={{ background: 'transparent' }}
-          onMouseDown={(e) => {
-            rightDrag.current = { startX: e.clientX, startW: rightWidth };
-            document.body.style.cursor     = 'col-resize';
-            document.body.style.userSelect = 'none';
-          }}
-        />
-
-        {/* Right panel — AI chat */}
-        <div
-          className="flex-shrink-0 overflow-hidden"
-          style={{ width: rightWidth, minWidth: RIGHT_MIN }}
-        >
-          <ChatPanel
-            currentPath={dir.currentPath}
-            settings={settings}
-            onRefresh={dir.refresh}
-            onOpenSettings={() => setSettingsOpen(true)}
+        {/* Divider — center / right (only when chat is open) */}
+        {chatOpen && (
+          <div
+            className="fp-divider"
+            style={{ background: 'transparent' }}
+            onMouseDown={(e) => {
+              rightDrag.current = { startX: e.clientX, startW: rightWidth };
+              document.body.style.cursor     = 'col-resize';
+              document.body.style.userSelect = 'none';
+            }}
           />
-        </div>
+        )}
+
+        {/* Right panel — AI chat (collapsible) */}
+        {chatOpen && (
+          <div
+            className="flex-shrink-0 overflow-hidden border-l"
+            style={{ width: rightWidth, minWidth: RIGHT_MIN, borderColor: '#2a2a2a' }}
+          >
+            <ChatPanel
+              currentPath={dir.currentPath}
+              settings={settings}
+              onRefresh={dir.refresh}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Status bar */}
