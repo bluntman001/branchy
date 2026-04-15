@@ -197,11 +197,11 @@ export function App() {
       </div>
 
       {/* Three-panel layout */}
-      <div className="flex flex-1 overflow-hidden" style={{ padding: '6px 6px 0 6px', gap: 0 }}>
+      <div className="flex flex-1 overflow-hidden">
         {/* Left panel — Folder tree */}
         <div
-          className="flex-shrink-0 overflow-hidden rounded-lg"
-          style={{ width: leftWidth, minWidth: LEFT_MIN, border: '1px solid #2a2a2a', background: '#161616' }}
+          className="flex-shrink-0 overflow-hidden border-r"
+          style={{ width: leftWidth, minWidth: LEFT_MIN, borderColor: '#2a2a2a' }}
         >
           <FolderTree
             currentPath={dir.currentPath}
@@ -222,7 +222,7 @@ export function App() {
         />
 
         {/* Center panel — File browser */}
-        <div className="flex-1 overflow-hidden min-w-0 rounded-lg mx-1.5" style={{ border: '1px solid #2a2a2a' }}>
+        <div className="flex-1 overflow-hidden min-w-0 border-r" style={{ borderColor: '#2a2a2a' }}>
           <FileBrowser
             entries={dir.entries}
             loading={dir.loading}
@@ -255,8 +255,8 @@ export function App() {
 
         {/* Right panel — AI chat */}
         <div
-          className="flex-shrink-0 overflow-hidden rounded-lg"
-          style={{ width: rightWidth, minWidth: RIGHT_MIN, border: '1px solid #2a2a2a', background: '#161616' }}
+          className="flex-shrink-0 overflow-hidden"
+          style={{ width: rightWidth, minWidth: RIGHT_MIN }}
         >
           <ChatPanel
             currentPath={dir.currentPath}
@@ -269,13 +269,13 @@ export function App() {
 
       {/* Status bar */}
       <div
-        className="flex items-center gap-4 px-4 flex-shrink-0"
+        className="flex items-center gap-4 px-4 border-t flex-shrink-0"
         style={{
-          background: 'transparent',
+          borderColor: '#2a2a2a',
+          background: '#161616',
           height: 28,
           fontSize: 11,
           color: '#555',
-          paddingBottom: 4,
         }}
       >
         <span>{dir.entries.length} items</span>

@@ -123,15 +123,13 @@ html, body, #root {
 .fp-divider {
   width: 4px;
   flex-shrink: 0;
-  background: #2a2a2a;
+  background: transparent;
   cursor: col-resize;
-  transition: background 150ms;
   position: relative;
   z-index: 10;
 }
-.fp-divider:hover,
-.fp-divider:active {
-  background: #3b82f6;
+.fp-divider:hover {
+  background: rgba(59,130,246,0.3);
 }
 
 /* ── Radix Collapsible (sidebar sections) ───────────── */
