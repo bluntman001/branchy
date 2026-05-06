@@ -516,15 +516,26 @@ export function FileBrowser({
   };
 
   const handleDragStart = (e: React.DragEvent, entry: FileEntry) => {
+    // Drag-select inside the rename input bubbles up to the draggable row,
+    // which would call Tauri's native `startDrag`. Initiating an OS-level
+    // drag while a text input is active crashes WebView2's modal drag
+    // loop — bail when the source is any text-editable element or when
+    // this row is currently being renamed.
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('input, textarea, [contenteditable="true"]') ||
+      renaming?.path === entry.path
+    ) {
+      e.preventDefault();
+      return;
+    }
     const paths = selected.has(entry.path) ? [...selected] : [entry.path];
     // Internal drag: keeps drop-onto-folder working inside the app via
     // HTML5 dataTransfer (parsed by handleFolderDrop).
     e.dataTransfer.setData('application/filepilot', JSON.stringify(paths));
     e.dataTransfer.effectAllowed = 'move';
     // External drag: hand the OS the actual file paths so they can be
-    // dropped onto Chrome / Explorer / other apps as real files. The
-    // plugin invokes Windows DoDragDrop / macOS NSDraggingItem with
-    // native file objects.
+    // dropped onto Chrome / Explorer / other apps as real files.
     startDrag({ item: paths, icon: '' }).catch(() => { /* noop */ });
   };
 
