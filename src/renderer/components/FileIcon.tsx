@@ -1,8 +1,5 @@
 import React from 'react';
 import {
-  PiFolder,
-  PiFolderOpen,
-  PiFolderUser,
   PiHardDrives,
   PiUsb,
   PiNetworkSlash,
@@ -94,7 +91,7 @@ interface FileIconProps {
 
 function CategoryIcon({ category, size }: { category: FileCategory; size: number }) {
   switch (category) {
-    case 'folder':     return <PiFolder size={size} />;
+    case 'folder':     return <ModernFolderIcon size={size} />;
     case 'image':      return <PiFileImage size={size} />;
     case 'video':      return <PiFilmSlate size={size} />;
     case 'audio':      return <PiMusicNoteSimple size={size} />;
@@ -106,6 +103,44 @@ function CategoryIcon({ category, size }: { category: FileCategory; size: number
     case 'presentation':return <PiMicrosoftPowerpointLogo size={size} />;
     default:           return <PiFile size={size} />;
   }
+}
+
+function ModernFolderIcon({ size = 16, open = false }: { size?: number; open?: boolean }) {
+  const id = React.useId();
+  if (open) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id={`fo1-${id}`} x1="2" y1="6" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FCD34D" />
+            <stop offset="1" stopColor="#F59E0B" />
+          </linearGradient>
+          <linearGradient id={`fo2-${id}`} x1="1" y1="10" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FBBF24" />
+            <stop offset="1" stopColor="#D97706" />
+          </linearGradient>
+        </defs>
+        <path d="M2 6C2 4.895 2.895 4 4 4H9.172a2 2 0 0 1 1.414.586L12 6H20a2 2 0 0 1 2 2V9H2V6Z" fill={`url(#fo1-${id})`} />
+        <path d="M1 10.5a1 1 0 0 1 .98-.995L2 9.5h20l.02.005a1 1 0 0 1 .866.724l.008.04-2 10a1 1 0 0 1-.874.726L20 21H4a1 1 0 0 1-.97-.757l-.01-.043-2-9.5A1 1 0 0 1 1 10.5Z" fill={`url(#fo2-${id})`} />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id={`fc1-${id}`} x1="2" y1="4" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FCD34D" />
+          <stop offset="1" stopColor="#F59E0B" />
+        </linearGradient>
+        <linearGradient id={`fc2-${id}`} x1="2" y1="8" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FBBF24" />
+          <stop offset="1" stopColor="#D97706" />
+        </linearGradient>
+      </defs>
+      <path d="M2 6C2 4.895 2.895 4 4 4H9.172a2 2 0 0 1 1.414.586L12 6H20a2 2 0 0 1 2 2V9H2V6Z" fill={`url(#fc1-${id})`} />
+      <rect x="2" y="8" width="20" height="12" rx="1.5" fill={`url(#fc2-${id})`} />
+    </svg>
+  );
 }
 
 export function FileIcon({
@@ -134,14 +169,9 @@ export function FileIcon({
   }
 
   if (isDirectory) {
-    const color = '#fbbf24';
     return (
-      <span className={className} style={{ ...style, color }}>
-        {isShared
-          ? <PiFolderUser size={size} />
-          : isOpen
-          ? <PiFolderOpen size={size} />
-          : <PiFolder size={size} />}
+      <span className={className} style={{ ...style, flexShrink: 0 }}>
+        <ModernFolderIcon size={size} open={isOpen} />
       </span>
     );
   }

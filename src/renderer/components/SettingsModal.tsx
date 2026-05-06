@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiX, FiEye, FiEyeOff, FiKey, FiFolder } from 'react-icons/fi';
 import { AppSettings } from '../../types';
+import { fileAPI } from '../../api';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -17,7 +18,7 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
   const [homeDir, setHomeDir] = useState('');
 
   useEffect(() => {
-    window.fileAPI.settings.getHomeDir().then(setHomeDir);
+    fileAPI.settings.getHomeDir().then(setHomeDir);
   }, []);
 
   const handleSave = () => {
@@ -28,34 +29,68 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ background: 'rgba(0,0,0,0.7)' }}
+      style={{
+        background: 'rgba(8, 6, 12, 0.55)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        animation: 'fadeIn 160ms ease',
+      }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="rounded-xl shadow-2xl w-[480px] border overflow-hidden"
-        style={{ background: '#1a1a1a', borderColor: '#2a2a2a' }}
+        className="w-[500px] overflow-hidden"
+        style={{
+          background: 'rgba(24, 20, 30, 0.92)',
+          backdropFilter: 'blur(28px) saturate(170%)',
+          WebkitBackdropFilter: 'blur(28px) saturate(170%)',
+          border: '1px solid var(--border)',
+          borderRadius: 16,
+          boxShadow: 'var(--shadow-lg), inset 0 1px 0 rgba(255,255,255,0.05)',
+          animation: 'modalIn 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1)',
+        }}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-5 py-4 border-b"
-          style={{ borderColor: '#2a2a2a' }}
+          className="flex items-center justify-between"
+          style={{
+            padding: '18px 22px',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
         >
-          <h2 className="text-sm font-semibold" style={{ color: '#e5e5e5' }}>Settings</h2>
+          <div className="flex items-center gap-2.5">
+            <div
+              style={{
+                width: 24, height: 24, borderRadius: 7,
+                background: 'linear-gradient(135deg, var(--accent-hover), var(--accent))',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 13, color: '#fff',
+                boxShadow: '0 4px 12px -3px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.2)',
+              }}
+            >
+              ⚙
+            </div>
+            <h2 style={{ color: 'var(--text)', fontSize: 14, fontWeight: 600, letterSpacing: '-0.015em' }}>
+              Settings
+            </h2>
+          </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
-            style={{ color: '#666' }}
+            className="fp-btn-ghost flex items-center justify-center"
+            style={{ width: 28, height: 28, borderRadius: 8 }}
           >
-            <FiX size={16} />
+            <FiX size={15} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-5 space-y-5">
+        <div style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: 22 }}>
           {/* API Key */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: '#aaa' }}>
-              <FiKey size={12} /> Anthropic API Key
+            <label
+              className="flex items-center gap-1.5"
+              style={{ color: 'var(--text-dim)', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}
+            >
+              <FiKey size={11} /> Anthropic API Key
             </label>
             <div className="relative">
               <input
@@ -63,31 +98,37 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="sk-ant-..."
-                className="w-full px-3 py-2 pr-9 rounded-lg text-xs outline-none border"
+                className="fp-input w-full"
                 style={{
-                  background: '#0f0f0f',
-                  border: '1px solid #2a2a2a',
-                  color: '#e5e5e5',
-                  fontFamily: 'JetBrains Mono, monospace',
+                  paddingRight: 36,
+                  fontFamily: 'Geist Mono, monospace',
+                  fontSize: 12,
+                  letterSpacing: '0.01em',
                 }}
               />
               <button
                 onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5"
-                style={{ color: '#666' }}
+                className="absolute fp-btn-ghost flex items-center justify-center"
+                style={{
+                  right: 6, top: '50%', transform: 'translateY(-50%)',
+                  width: 26, height: 26, borderRadius: 6,
+                }}
               >
                 {showKey ? <FiEyeOff size={13} /> : <FiEye size={13} />}
               </button>
             </div>
-            <p className="mt-1 text-xs" style={{ color: '#555' }}>
+            <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 6, letterSpacing: '-0.005em' }}>
               Stored locally. Get your key from console.anthropic.com
             </p>
           </div>
 
           {/* Start Directory */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: '#aaa' }}>
-              <FiFolder size={12} /> Default Start Directory
+            <label
+              className="flex items-center gap-1.5"
+              style={{ color: 'var(--text-dim)', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}
+            >
+              <FiFolder size={11} /> Default Start Directory
             </label>
             <div className="flex gap-2">
               <input
@@ -95,18 +136,25 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
                 value={startDir}
                 onChange={(e) => setStartDir(e.target.value)}
                 placeholder={homeDir || 'e.g. C:\\Users\\You'}
-                className="flex-1 px-3 py-2 rounded-lg text-xs outline-none border"
+                className="fp-input flex-1"
                 style={{
-                  background: '#0f0f0f',
-                  border: '1px solid #2a2a2a',
-                  color: '#e5e5e5',
-                  fontFamily: 'JetBrains Mono, monospace',
+                  fontFamily: 'Geist Mono, monospace',
+                  fontSize: 12,
+                  letterSpacing: '0.01em',
                 }}
               />
               <button
                 onClick={() => setStartDir(homeDir)}
-                className="px-3 py-1.5 rounded-lg text-xs hover:bg-white/10 transition-colors border"
-                style={{ border: '1px solid #2a2a2a', color: '#888' }}
+                className="fp-btn-ghost transition-colors"
+                style={{
+                  padding: '0 14px',
+                  borderRadius: 6,
+                  color: 'var(--text-dim)',
+                  fontSize: 12,
+                  border: '1px solid var(--border)',
+                  fontWeight: 500,
+                  letterSpacing: '-0.005em',
+                }}
               >
                 Reset
               </button>
@@ -114,13 +162,24 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
           </div>
 
           {/* Toggles */}
-          <div className="space-y-3">
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              background: 'rgba(255,255,255,0.018)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 10,
+              padding: '4px',
+            }}
+          >
             <ToggleRow
               label="Confirm before delete"
               description="Show a confirmation dialog before deleting files"
               checked={confirmDelete}
               onChange={setConfirmDelete}
             />
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '0 8px' }} />
             <ToggleRow
               label="Show hidden files"
               description="Show files and folders starting with a dot"
@@ -132,27 +191,50 @@ export function SettingsModal({ onClose, onSave, settings: initialSettings }: Se
 
         {/* Footer */}
         <div
-          className="flex items-center justify-end gap-2 px-5 py-4 border-t"
-          style={{ borderColor: '#2a2a2a' }}
+          className="flex items-center justify-end gap-2"
+          style={{
+            padding: '16px 22px',
+            borderTop: '1px solid var(--border-subtle)',
+            background: 'rgba(0,0,0,0.15)',
+          }}
         >
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg text-sm hover:bg-white/10 transition-colors"
-            style={{ color: '#888' }}
+            className="fp-btn-ghost"
+            style={{
+              padding: '8px 16px',
+              borderRadius: 8,
+              color: 'var(--text-dim)',
+              fontSize: 12.5,
+              fontWeight: 500,
+              letterSpacing: '-0.005em',
+            }}
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
-            style={{ background: '#3b82f6', color: '#fff' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#2563eb')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#3b82f6')}
+            className="fp-btn-primary"
+            style={{
+              padding: '8px 18px',
+              fontSize: 12.5,
+            }}
           >
             Save Changes
           </button>
         </div>
       </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.96) translateY(6px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -166,22 +248,23 @@ function ToggleRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="flex items-start justify-between gap-4" style={{ padding: '10px 12px' }}>
       <div>
-        <div className="text-xs font-medium" style={{ color: '#ccc' }}>{label}</div>
-        <div className="text-xs mt-0.5" style={{ color: '#555' }}>{description}</div>
+        <div style={{ color: 'var(--text)', fontSize: 12.5, fontWeight: 500, letterSpacing: '-0.005em' }}>
+          {label}
+        </div>
+        <div style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 2, letterSpacing: '-0.005em' }}>
+          {description}
+        </div>
       </div>
       <button
         onClick={() => onChange(!checked)}
-        className="relative flex-shrink-0 w-9 h-5 rounded-full transition-colors mt-0.5"
-        style={{ background: checked ? '#3b82f6' : '#333' }}
+        className="fp-switch mt-0.5"
+        data-on={checked}
         role="switch"
         aria-checked={checked}
       >
-        <span
-          className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-          style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }}
-        />
+        <span className="fp-switch-thumb" />
       </button>
     </div>
   );

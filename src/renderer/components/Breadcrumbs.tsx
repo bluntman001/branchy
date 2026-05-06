@@ -1,5 +1,6 @@
 import React from 'react';
 import { FiChevronRight, FiHardDrive } from 'react-icons/fi';
+import { joinPath } from '../utils/path';
 
 interface BreadcrumbsProps {
   currentPath: string;
@@ -11,48 +12,63 @@ export function Breadcrumbs({ currentPath, onNavigate }: BreadcrumbsProps) {
 
   return (
     <div
-      className="flex items-center gap-0.5 overflow-hidden"
-      style={{ fontFamily: 'JetBrains Mono, Consolas, monospace', fontSize: 12 }}
+      data-tauri-drag-region
+      className="flex items-center overflow-hidden"
+      style={{
+        fontFamily: 'Geist, sans-serif',
+        fontSize: 12.5,
+        background: 'rgba(255,255,255,0.025)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 999,
+        padding: '3px 6px',
+        gap: 1,
+        letterSpacing: '-0.005em',
+        height: 30,
+        width: 'fit-content',
+        maxWidth: '100%',
+        userSelect: 'none',
+        WebkitUserDrag: 'none',
+      } as React.CSSProperties}
     >
-      {parts.map((part, i) => (
-        <React.Fragment key={part.path}>
-          {i === 0 ? (
+      {parts.map((part, i) => {
+        const isLast = i === parts.length - 1;
+        const isFirst = i === 0;
+        return (
+          <React.Fragment key={part.path}>
             <button
               onClick={() => onNavigate(part.path)}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors text-gray-300"
+              className="flex items-center gap-1.5 transition-colors"
+              style={{
+                padding: isFirst ? '4px 9px 4px 8px' : '4px 9px',
+                borderRadius: 999,
+                color: isLast ? 'var(--text)' : 'var(--text-dim)',
+                fontWeight: isLast ? 500 : 400,
+                background: isLast ? 'rgba(255,255,255,0.05)' : 'transparent',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={(e) => { if (!isLast) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+              onMouseLeave={(e) => { if (!isLast) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; } }}
             >
-              <FiHardDrive size={12} />
+              {isFirst && <FiHardDrive size={11} style={{ opacity: 0.7 }} />}
               <span>{part.label}</span>
             </button>
-          ) : (
-            <button
-              onClick={() => onNavigate(part.path)}
-              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors"
-              style={{ color: i === parts.length - 1 ? '#e5e5e5' : '#888888' }}
-            >
-              {part.label}
-            </button>
-          )}
-          {i < parts.length - 1 && (
-            <FiChevronRight size={12} style={{ color: '#555555', flexShrink: 0 }} />
-          )}
-        </React.Fragment>
-      ))}
+            {!isLast && (
+              <FiChevronRight
+                size={11}
+                style={{ color: 'var(--text-ghost)', flexShrink: 0, margin: '0 -2px' }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
-}
-
-function joinPath(base: string, segment: string): string {
-  const sep = base.includes('\\') ? '\\' : '/';
-  const trimmed = base.replace(/[/\\]+$/, '');
-  return trimmed + sep + segment;
 }
 
 function buildParts(currentPath: string): { label: string; path: string }[] {
   const normalized = currentPath.replace(/\\/g, '/');
   const parts: { label: string; path: string }[] = [];
 
-  // Windows: C:/ style
   const winDriveMatch = normalized.match(/^([A-Za-z]:)(\/.*)?$/);
   if (winDriveMatch) {
     const drive = winDriveMatch[1].toUpperCase();
@@ -71,7 +87,6 @@ function buildParts(currentPath: string): { label: string; path: string }[] {
     return parts;
   }
 
-  // Unix
   parts.push({ label: '/', path: '/' });
   const segments = normalized.replace(/^\//, '').split('/').filter(Boolean);
   let accumulated = '/';

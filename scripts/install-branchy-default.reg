@@ -1,0 +1,33 @@
+Windows Registry Editor Version 5.00
+
+; ─────────────────────────────────────────────────────────────────────────────
+; Makes Branchy the default file explorer for the CURRENT USER (HKCU only).
+; Does NOT touch HKLM / system registry. To revert, run restore-explorer-default.reg.
+;
+; What this hijacks:
+;   1. Win+E hotkey and File Explorer taskbar/Start menu icon
+;      (via the "File Explorer" CLSID).
+;   2. Double-clicking a folder.
+;   3. "open" verb on the "Folder" virtual class.
+;
+; Path below is hardcoded — edit if you move branchy.exe.
+; ─────────────────────────────────────────────────────────────────────────────
+
+; ── 1. Win+E / File Explorer icon → Branchy ─────────────────────────────────
+[HKEY_CURRENT_USER\Software\Classes\CLSID\{52205FD8-5DFB-447D-801A-D0B52F2E83E1}\shell\opennewwindow\command]
+@="\"C:\\Users\\Administrator.BigGreen\\OneDrive\\Desktop\\FilePilot\\src-tauri\\target\\release\\branchy.exe\""
+"DelegateExecute"=""
+
+; ── 2. Double-click a folder → Branchy ──────────────────────────────────────
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\open\command]
+@="\"C:\\Users\\Administrator.BigGreen\\OneDrive\\Desktop\\FilePilot\\src-tauri\\target\\release\\branchy.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\open]
+"DelegateExecute"=-
+
+; ── 3. "Folder" virtual class (used by some shell locations) ────────────────
+[HKEY_CURRENT_USER\Software\Classes\Folder\shell\open\command]
+@="\"C:\\Users\\Administrator.BigGreen\\OneDrive\\Desktop\\FilePilot\\src-tauri\\target\\release\\branchy.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Folder\shell\open]
+"DelegateExecute"=-

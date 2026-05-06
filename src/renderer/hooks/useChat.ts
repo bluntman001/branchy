@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, Tool } from '@anthropic-ai/sdk/resources/messages';
+import { fileAPI } from '../../api';
 
 export interface ChatMessage {
   id: string;
@@ -103,35 +104,35 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
   try {
     switch (name) {
       case 'list_directory': {
-        const entries = await window.fileAPI.listDirectory(input.path as string);
+        const entries = await fileAPI.listDirectory(input.path as string);
         return JSON.stringify(entries.slice(0, 50), null, 2);
       }
       case 'search_files': {
-        const results = await window.fileAPI.searchFiles(input.root_path as string, input.query as string);
+        const results = await fileAPI.searchFiles(input.root_path as string, input.query as string);
         return JSON.stringify(results.slice(0, 30), null, 2);
       }
       case 'rename_file': {
-        await window.fileAPI.renameFile(input.old_path as string, input.new_path as string);
+        await fileAPI.renameFile(input.old_path as string, input.new_path as string);
         return `Renamed successfully`;
       }
       case 'move_files': {
-        await window.fileAPI.moveFiles(input.source_paths as string[], input.dest_dir as string);
+        await fileAPI.moveFiles(input.source_paths as string[], input.dest_dir as string);
         return `Moved ${(input.source_paths as string[]).length} item(s) successfully`;
       }
       case 'copy_files': {
-        await window.fileAPI.copyFiles(input.source_paths as string[], input.dest_dir as string);
+        await fileAPI.copyFiles(input.source_paths as string[], input.dest_dir as string);
         return `Copied ${(input.source_paths as string[]).length} item(s) successfully`;
       }
       case 'delete_files': {
-        await window.fileAPI.deleteFiles(input.paths as string[]);
+        await fileAPI.deleteFiles(input.paths as string[]);
         return `Deleted ${(input.paths as string[]).length} item(s)`;
       }
       case 'create_folder': {
-        await window.fileAPI.createFolder(input.path as string);
+        await fileAPI.createFolder(input.path as string);
         return `Created folder: ${input.path}`;
       }
       case 'open_file': {
-        await window.fileAPI.openFile(input.path as string);
+        await fileAPI.openFile(input.path as string);
         return `Opened: ${input.path}`;
       }
       default:
@@ -143,6 +144,30 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 }
 
 const SYSTEM_PROMPT = `You are a file management assistant. The user is working in a file manager application. You have access to tools to list, search, rename, move, copy, delete files and folders. Always confirm destructive operations before executing. Be concise.`;
+
+// Long conversations grow unboundedly — every API call resends the full
+// transcript, so token cost scales with history length, and tool results
+// can be 50-entry JSON blobs. Keep only the most recent turns.
+const MAX_API_MESSAGES = 40;
+
+/**
+ * Trim transcript to the most recent ~MAX_API_MESSAGES messages, snapping
+ * the cut to a turn boundary. The Anthropic API requires that any
+ * `tool_result` user message immediately follow the assistant message that
+ * produced its `tool_use_id`, so we can only cut at a "fresh user turn" —
+ * a user message whose content is a plain string (not tool_result blocks).
+ */
+function trimApiHistory(messages: MessageParam[]): MessageParam[] {
+  if (messages.length <= MAX_API_MESSAGES) return messages;
+  const isTurnStart = (m: MessageParam): boolean =>
+    m.role === 'user' && typeof m.content === 'string';
+  for (let i = messages.length - MAX_API_MESSAGES; i < messages.length; i++) {
+    if (isTurnStart(messages[i])) return messages.slice(i);
+  }
+  // No clean boundary found in the recent slice — fall back to keeping just
+  // the latest message (will be the user's just-pushed turn).
+  return messages.slice(-1);
+}
 
 export function useChat(currentPath: string, onRefresh: () => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -169,6 +194,7 @@ export function useChat(currentPath: string, onRefresh: () => void) {
 
       addMessage({ role: 'user', content: userText });
       apiMessages.current.push({ role: 'user', content: contextualText });
+      apiMessages.current = trimApiHistory(apiMessages.current);
 
       setIsLoading(true);
       const assistantId = addMessage({ role: 'assistant', content: '', isStreaming: true });

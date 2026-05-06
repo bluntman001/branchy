@@ -22,6 +22,7 @@ import {
   PiCaretRight,
 } from 'react-icons/pi';
 import { OpenWithApp } from '../../types';
+import { fileAPI } from '../../api';
 
 // ── shared item components ────────────────────────────
 function Item({
@@ -104,7 +105,7 @@ export function FileContextMenu({
   // Load Open With candidates whenever we have a non-directory file with an extension
   useEffect(() => {
     if (!isDirectory && extension) {
-      window.fileAPI.getOpenWithApps(extension)
+      fileAPI.getOpenWithApps(extension)
         .then(setOpenWithApps)
         .catch(() => setOpenWithApps([]));
     } else {
@@ -150,7 +151,7 @@ export function FileContextMenu({
                   <Item
                     icon={<PiFolderOpen size={13} />}
                     label="Choose another app…"
-                    onSelect={() => window.fileAPI.showOpenWithDialog(filePath)}
+                    onSelect={() => fileAPI.showOpenWithDialog(filePath)}
                   />
                 </CM.SubContent>
               </CM.Portal>

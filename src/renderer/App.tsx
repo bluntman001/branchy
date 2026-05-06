@@ -11,8 +11,11 @@ import { Breadcrumbs } from './components/Breadcrumbs';
 import { SettingsModal } from './components/SettingsModal';
 import { useDirectory } from './hooks/useDirectory';
 import { useSelection } from './hooks/useSelection';
+import { useCopyOps } from './hooks/useCopyOps';
+import { CopyProgress } from './components/CopyProgress';
 import { formatSize, totalSize } from './utils/formatSize';
 import { AppSettings } from '../types';
+import { fileAPI } from '../api';
 
 const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
@@ -21,23 +24,102 @@ const DEFAULT_SETTINGS: AppSettings = {
   showHidden: false,
 };
 
-// Panel width constraints
-const LEFT_MIN  = 160;
-const LEFT_MAX  = 380;
-const RIGHT_MIN = 220;
-const RIGHT_MAX = 500;
+const LEFT_MIN  = 200;
+const LEFT_MAX  = 420;
+const RIGHT_MIN = 260;
+const RIGHT_MAX = 540;
+
+interface Bootstrap {
+  initialDir: string;
+  chatOpenInitial: boolean;
+  settings: AppSettings;
+}
 
 export function App() {
-  const [settings, setSettings]         = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [initializing, setInitializing] = useState(true);
-  const [chatOpen, setChatOpen]         = useState(true);
+  const [boot, setBoot] = useState<Bootstrap | null>(null);
 
-  // Resizable panels
-  const [leftWidth, setLeftWidth]   = useState(220);
-  const [rightWidth, setRightWidth] = useState(320);
+  useEffect(() => {
+    (async () => {
+      try {
+        const all      = await fileAPI.settings.getAll();
+        const homeDir  = await fileAPI.settings.getHomeDir();
+        const cliPath  = await fileAPI.settings.getInitialPath();
+        const lastDir  = (await fileAPI.settings.get('lastDir')) as string | undefined;
+        const chatOpen = (await fileAPI.settings.get('chatPanelOpen')) as boolean | undefined;
+
+        const startDir = cliPath || all.startDir || homeDir;
+        let resolvedDir = startDir;
+        // CLI path always wins. Otherwise prefer last-visited folder if it still exists.
+        if (!cliPath && lastDir && lastDir !== startDir) {
+          try {
+            const stat = await fileAPI.getStats(lastDir);
+            if (stat?.isDirectory) resolvedDir = lastDir;
+          } catch { /* fall through to startDir */ }
+        }
+
+        setBoot({
+          initialDir: resolvedDir,
+          chatOpenInitial: chatOpen ?? true,
+          settings: { ...DEFAULT_SETTINGS, ...all, startDir: all.startDir || homeDir },
+        });
+      } catch (err) {
+        console.error('Failed to load settings', err);
+        const homeDir = await fileAPI.settings.getHomeDir().catch(() => 'C:\\');
+        setBoot({
+          initialDir: homeDir,
+          chatOpenInitial: true,
+          settings: { ...DEFAULT_SETTINGS, startDir: homeDir },
+        });
+      }
+    })();
+  }, []);
+
+  if (!boot) {
+    return (
+      <div className="h-screen flex items-center justify-center" style={{ background: 'var(--app-bg)' }}>
+        <span className="w-6 h-6 rounded-full animate-spin" style={{ border: '2px solid var(--accent)', borderTopColor: 'transparent' }} />
+      </div>
+    );
+  }
+
+  return <AppShell {...boot} />;
+}
+
+function AppShell({ initialDir, chatOpenInitial, settings: initialSettings }: Bootstrap) {
+  const [settings, setSettings]         = useState<AppSettings>(initialSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatOpen, setChatOpen]         = useState(chatOpenInitial);
+
+  const [leftWidth, setLeftWidth]   = useState(240);
+  const [rightWidth, setRightWidth] = useState(340);
   const leftDrag  = useRef<{ startX: number; startW: number } | null>(null);
   const rightDrag = useRef<{ startX: number; startW: number } | null>(null);
+
+  const dir = useDirectory(initialDir);
+  const { selected, select, selectAll, clearSelection, isSelected } = useSelection();
+
+  // Async copy progress — startCopy returns immediately, the UI shows
+  // a progress card until done. If the copy lands in the user's current
+  // folder, refresh on completion so the new files show up.
+  const { ops: copyOps, startCopy } = useCopyOps((finished) => {
+    if (!finished.error && finished.destDir === dir.currentPath) dir.refresh();
+  });
+
+  // Initial load — useDirectory no longer auto-loads.
+  useEffect(() => {
+    dir.refresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist last-visited folder.
+  useEffect(() => {
+    fileAPI.settings.set('lastDir', dir.currentPath).catch(() => {});
+  }, [dir.currentPath]);
+
+  // Persist chat panel state.
+  useEffect(() => {
+    fileAPI.settings.set('chatPanelOpen', chatOpen).catch(() => {});
+  }, [chatOpen]);
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
@@ -46,7 +128,6 @@ export function App() {
         setLeftWidth(Math.max(LEFT_MIN, Math.min(LEFT_MAX, leftDrag.current.startW + dx)));
       }
       if (rightDrag.current) {
-        // dragging left ↔ right panel divider: moving left increases right panel
         const dx = rightDrag.current.startX - e.clientX;
         setRightWidth(Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, rightDrag.current.startW + dx)));
       }
@@ -65,51 +146,31 @@ export function App() {
     };
   }, []);
 
-  // Load settings on mount
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const all     = await window.fileAPI.settings.getAll();
-        const homeDir = await window.fileAPI.settings.getHomeDir();
-        const startDir = all.startDir || homeDir;
-        setSettings({ ...DEFAULT_SETTINGS, ...all, startDir });
-        setInitialDir(startDir);
-      } catch (err) {
-        console.error('Failed to load settings', err);
-      } finally {
-        setInitializing(false);
+    (async () => {
+      const shown = await fileAPI.settings.get('settingsIntroShown');
+      if (!shown) {
+        setSettingsOpen(true);
+        await fileAPI.settings.set('settingsIntroShown', true);
       }
-    }
-    loadSettings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [initialDir, setInitialDir] = useState('');
-
-  const dir = useDirectory(initialDir || 'C:\\');
-  const { selected, select, selectAll, clearSelection, isSelected } = useSelection();
-
-  // If no API key, open settings after init
-  useEffect(() => {
-    if (!initializing && !settings.apiKey) {
-      setSettingsOpen(true);
-    }
-  }, [initializing, settings.apiKey]);
+    })();
+  }, []);
 
   const handleSaveSettings = useCallback(async (updates: Partial<AppSettings>) => {
     const newSettings = { ...settings, ...updates };
     setSettings(newSettings);
     await Promise.all([
-      window.fileAPI.settings.set('apiKey',         newSettings.apiKey),
-      window.fileAPI.settings.set('startDir',       newSettings.startDir),
-      window.fileAPI.settings.set('confirmDelete',  newSettings.confirmDelete),
-      window.fileAPI.settings.set('showHidden',     newSettings.showHidden),
+      fileAPI.settings.set('apiKey',         newSettings.apiKey),
+      fileAPI.settings.set('startDir',       newSettings.startDir),
+      fileAPI.settings.set('confirmDelete',  newSettings.confirmDelete),
+      fileAPI.settings.set('showHidden',     newSettings.showHidden),
     ]);
     toast.success('Settings saved');
   }, [settings]);
 
   const handleDrop = useCallback(async (sourcePaths: string[], destDir: string) => {
     try {
-      await window.fileAPI.moveFiles(sourcePaths, destDir);
+      await fileAPI.moveFiles(sourcePaths, destDir);
       clearSelection();
       dir.refresh();
       toast.success(`Moved ${sourcePaths.length} item(s)`);
@@ -121,96 +182,110 @@ export function App() {
   const selectedEntries = dir.entries.filter((e) => isSelected(e.path));
   const selectionSize   = totalSize(selectedEntries);
 
-  if (initializing) {
-    return (
-      <div className="h-screen flex items-center justify-center" style={{ background: '#0f0f0f' }}>
-        <span className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', boxSizing: 'border-box' }}>
-      {/* Title bar / Header */}
+    <div
+      className="h-screen flex flex-col overflow-hidden"
+      style={{
+        background: 'var(--app-bg)',
+        border: '1px solid var(--border-subtle)',
+        boxSizing: 'border-box',
+      }}
+    >
       <div
-        className="flex items-center gap-2 px-4 border-b flex-shrink-0"
+        data-tauri-drag-region
+        className="fp-glass flex items-center gap-3 flex-shrink-0"
+        onDoubleClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (t.closest('button, a, input, select, textarea')) return;
+          fileAPI.window.toggleMaximize().catch(() => { /* noop */ });
+        }}
         style={{
-          borderColor: '#2a2a2a',
-          background: '#161616',
-          height: 42,
-          WebkitAppRegion: 'drag' as never,
+          borderBottom: '1px solid var(--border-subtle)',
+          height: 48,
+          paddingLeft: 18,
+          paddingRight: 12,
+          position: 'relative',
+          zIndex: 20,
+          userSelect: 'none',
+          WebkitUserDrag: 'none',
         } as React.CSSProperties}
       >
-        {/* App icon + name */}
-        <div
-          className="flex items-center gap-2 mr-2 flex-shrink-0"
-          style={{ WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
-        >
-          <img src={branchyIcon} width={20} height={20} draggable={false} style={{ objectFit: 'contain', borderRadius: 4 }} />
-          <span className="text-xs font-semibold tracking-wide" style={{ color: '#e5e5e5' }}>
+        <div data-tauri-drag-region className="flex items-center gap-2.5 flex-shrink-0">
+          <img
+            src={branchyIcon}
+            width={22}
+            height={22}
+            draggable={false}
+            style={{ objectFit: 'contain', flexShrink: 0 }}
+          />
+          <span
+            data-tauri-drag-region
+            style={{
+              color: 'var(--text)',
+              fontSize: 13,
+              fontWeight: 600,
+              letterSpacing: '-0.015em',
+            }}
+          >
             Branchy
           </span>
         </div>
 
-        {/* Breadcrumbs */}
-        <div
-          className="flex-1 overflow-hidden"
-          style={{ WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
-        >
-          <Breadcrumbs currentPath={dir.currentPath} onNavigate={dir.navigate} />
-        </div>
+        <div data-tauri-drag-region style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0 }} />
 
-        {/* Window controls */}
+        <Breadcrumbs currentPath={dir.currentPath} onNavigate={dir.navigate} />
+
+        {/* Spacer absorbs all remaining width — pure drag region. */}
         <div
-          className="flex items-center gap-1 ml-2 pr-1"
-          style={{ WebkitAppRegion: 'no-drag' as never } as React.CSSProperties}
-        >
+          data-tauri-drag-region
+          className="flex-1 self-stretch min-w-0"
+          style={{ userSelect: 'none', WebkitUserDrag: 'none' } as React.CSSProperties}
+        />
+
+        <div data-tauri-drag-region className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setChatOpen((v) => !v)}
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: chatOpen ? '#3b82f6' : '#666' }}
+            className={`fp-winctrl ${chatOpen ? 'fp-winctrl-active' : ''}`}
             title="Toggle AI Chat"
           >
-            <FiMessageSquare size={14} />
+            <FiMessageSquare size={15} />
           </button>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: '#666' }}
+            className="fp-winctrl"
             title="Settings"
           >
-            <FiSettings size={14} />
+            <FiSettings size={15} />
           </button>
+          <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px' }} />
           <button
-            onClick={() => window.fileAPI.window.minimize()}
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: '#666' }}
+            onClick={() => fileAPI.window.minimize()}
+            className="fp-winctrl"
+            title="Minimize"
           >
             <FiMinus size={14} />
           </button>
           <button
-            onClick={() => window.fileAPI.window.maximize()}
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: '#666' }}
+            onClick={() => fileAPI.window.maximize()}
+            className="fp-winctrl"
+            title="Maximize"
           >
             <FiSquare size={12} />
           </button>
           <button
-            onClick={() => window.fileAPI.window.close()}
-            className="p-1.5 rounded hover:bg-red-500/20 hover:text-red-400 transition-colors"
-            style={{ color: '#666' }}
+            onClick={() => fileAPI.window.close()}
+            className="fp-winctrl fp-winctrl-close"
+            title="Close"
           >
-            <FiX size={14} />
+            <FiX size={15} />
           </button>
         </div>
       </div>
 
-      {/* Three-panel layout */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left panel — Folder tree */}
+      <div className="flex flex-1 overflow-hidden" style={{ padding: '8px 8px 0' }}>
         <div
-          className="flex-shrink-0 overflow-hidden border-r"
-          style={{ width: leftWidth, minWidth: LEFT_MIN, borderColor: '#2a2a2a' }}
+          className="fp-panel flex-shrink-0 overflow-hidden"
+          style={{ width: leftWidth, minWidth: LEFT_MIN }}
         >
           <FolderTree
             currentPath={dir.currentPath}
@@ -219,10 +294,9 @@ export function App() {
           />
         </div>
 
-        {/* Divider — left / center */}
         <div
           className="fp-divider"
-          style={{ background: 'transparent' }}
+          style={{ marginLeft: 6, marginRight: 6 }}
           onMouseDown={(e) => {
             leftDrag.current = { startX: e.clientX, startW: leftWidth };
             document.body.style.cursor     = 'col-resize';
@@ -230,8 +304,7 @@ export function App() {
           }}
         />
 
-        {/* Center panel — File browser */}
-        <div className="flex-1 overflow-hidden min-w-0 border-r" style={{ borderColor: '#2a2a2a' }}>
+        <div className="fp-panel flex-1 overflow-hidden min-w-0">
           <FileBrowser
             entries={dir.entries}
             loading={dir.loading}
@@ -248,14 +321,14 @@ export function App() {
             onGoUp={dir.goUp}
             onRefresh={dir.refresh}
             onDrop={handleDrop}
+            onCopyAsync={startCopy}
           />
         </div>
 
-        {/* Divider — center / right (only when chat is open) */}
         {chatOpen && (
           <div
             className="fp-divider"
-            style={{ background: 'transparent' }}
+            style={{ marginLeft: 6, marginRight: 6 }}
             onMouseDown={(e) => {
               rightDrag.current = { startX: e.clientX, startW: rightWidth };
               document.body.style.cursor     = 'col-resize';
@@ -264,57 +337,67 @@ export function App() {
           />
         )}
 
-        {/* Right panel — AI chat (collapsible) */}
         {chatOpen && (
           <div
-            className="flex-shrink-0 overflow-hidden border-l"
-            style={{ width: rightWidth, minWidth: RIGHT_MIN, borderColor: '#2a2a2a' }}
+            className="fp-panel flex-shrink-0 overflow-hidden"
+            style={{ width: rightWidth, minWidth: RIGHT_MIN }}
           >
             <ChatPanel
               currentPath={dir.currentPath}
               settings={settings}
               onRefresh={dir.refresh}
               onOpenSettings={() => setSettingsOpen(true)}
+              onClose={() => setChatOpen(false)}
             />
           </div>
         )}
       </div>
 
-      {/* Status bar */}
       <div
-        className="flex items-center gap-4 px-4 border-t flex-shrink-0"
+        className="fp-glass flex items-center gap-3 flex-shrink-0"
         style={{
-          borderColor: '#2a2a2a',
-          background: '#161616',
-          height: 28,
+          borderTop: '1px solid var(--border-subtle)',
+          height: 30,
           fontSize: 11,
-          color: '#555',
+          color: 'var(--text-faint)',
+          padding: '0 14px',
+          marginTop: 8,
         }}
       >
-        <span>{dir.entries.length} items</span>
+        <span style={{ fontFamily: 'Geist Mono, monospace', letterSpacing: '0.01em' }}>
+          {dir.entries.length} <span style={{ color: 'var(--text-ghost)' }}>items</span>
+        </span>
         {selected.size > 0 && (
           <>
-            <span style={{ color: '#3b82f6' }}>
-              {selected.size} selected
+            <div style={{ width: 1, height: 12, background: 'var(--border)' }} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--accent-text)' }}>
+              <span className="fp-dot" />
+              <span style={{ fontFamily: 'Geist Mono, monospace' }}>
+                {selected.size} selected
+              </span>
             </span>
             {selectionSize > 0 && (
-              <span>{formatSize(selectionSize)}</span>
+              <span style={{ fontFamily: 'Geist Mono, monospace', color: 'var(--text-dim)' }}>{formatSize(selectionSize)}</span>
             )}
           </>
         )}
         <div className="flex-1" />
         <span
           style={{
-            fontFamily: 'JetBrains Mono, monospace',
-            fontSize: 10,
-            color: '#3a3a3a',
+            fontFamily: 'Geist Mono, monospace',
+            fontSize: 10.5,
+            color: 'var(--text-ghost)',
+            letterSpacing: '0.01em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '40%',
           }}
         >
           {dir.currentPath}
         </span>
       </div>
 
-      {/* Settings modal */}
       {settingsOpen && (
         <SettingsModal
           settings={settings}
@@ -323,17 +406,31 @@ export function App() {
         />
       )}
 
+      <CopyProgress ops={copyOps} />
+
       <Toaster
         position="bottom-center"
         toastOptions={{
           style: {
-            background: '#252525',
-            color: '#e5e5e5',
-            border: '1px solid #2a2a2a',
-            fontSize: 12,
-            fontFamily: 'Inter, sans-serif',
+            background: 'rgba(24, 20, 30, 0.92)',
+            backdropFilter: 'blur(16px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(16px) saturate(160%)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            fontSize: 12.5,
+            fontFamily: 'Geist, sans-serif',
+            boxShadow: '0 20px 60px -20px rgba(0,0,0,0.7)',
+            padding: '10px 14px',
+            letterSpacing: '-0.005em',
           },
           duration: 3000,
+          success: {
+            iconTheme: { primary: '#7c6df2', secondary: '#fff' },
+          },
+          error: {
+            iconTheme: { primary: '#f06e7e', secondary: '#fff' },
+          },
         }}
       />
     </div>

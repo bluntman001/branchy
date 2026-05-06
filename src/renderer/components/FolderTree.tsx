@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { PiCaretRight, PiCaretDown } from 'react-icons/pi';
 import { FileIcon, DriveIcon, PlaceIcon, SpecialPlace } from './FileIcon';
 import { DriveInfo, MostUsedEntry } from '../../types';
 import { formatSize } from '../utils/formatSize';
+import { basename } from '../utils/path';
+import { fileAPI } from '../../api';
 
-// ── types ─────────────────────────────────────────────
 interface TreeNode {
   name: string;
   path: string;
@@ -15,22 +17,15 @@ interface TreeNode {
   hasChildren: boolean | null;
 }
 
-// ── helpers ───────────────────────────────────────────
-function pathBasename(p: string): string {
-  const norm = p.replace(/[/\\]+$/, '');
-  const last = Math.max(norm.lastIndexOf('/'), norm.lastIndexOf('\\'));
-  return last >= 0 ? norm.slice(last + 1) : norm;
-}
-
 async function loadChildren(dirPath: string): Promise<TreeNode[]> {
   try {
-    const entries = await window.fileAPI.listDirectory(dirPath);
+    const entries = await fileAPI.listDirectory(dirPath);
     const dirs = entries.filter((e) => e.isDirectory);
     const nodes = await Promise.all(
       dirs.map(async (e): Promise<TreeNode> => {
         let hasChildren: boolean | null = null;
         try {
-          hasChildren = await window.fileAPI.hasSubdirectories(e.path);
+          hasChildren = await fileAPI.hasSubdirectories(e.path);
         } catch { /* ignore */ }
         return { name: e.name, path: e.path, children: [], isOpen: false, isLoading: false, hasChildren };
       })
@@ -86,24 +81,59 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
   const [storageOpen, setStorageOpen]   = useState(true);
 
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const id = requestAnimationFrame(() => {
+      window.addEventListener('click', close);
+      window.addEventListener('contextmenu', close);
+    });
+    return () => { cancelAnimationFrame(id); window.removeEventListener('click', close); window.removeEventListener('contextmenu', close); };
+  }, [ctxMenu]);
+
+  const handleRemoveMostUsed = async (dirPath: string) => {
+    await fileAPI.nav.removeMostUsed(dirPath);
+    setMostUsed((prev) => prev.filter((m) => m.path !== dirPath));
+    setCtxMenu(null);
+  };
 
   useEffect(() => {
     async function init() {
       const [paths, driveList, mu] = await Promise.all([
-        window.fileAPI.settings.getSpecialPaths(),
-        window.fileAPI.getDrives(),
-        window.fileAPI.nav.getMostUsed(8),
+        fileAPI.settings.getSpecialPaths(),
+        fileAPI.getDrives(),
+        fileAPI.nav.getMostUsed(8),
       ]);
       setSpecialPaths(paths);
       setDrives(driveList);
       setMostUsed(mu);
     }
     init();
+
+    // Poll for drive plug/unplug. Windows offers WM_DEVICECHANGE for push
+    // notifications but Tauri doesn't expose a hook for it without a custom
+    // plugin — a 2s poll on a sub-millisecond WinAPI call is cheap and
+    // catches USB inserts/ejects within a heartbeat. We only setState when
+    // the letter set actually changed so identity-stable list passes are no-ops.
+    let lastSig = '';
+    const id = window.setInterval(async () => {
+      try {
+        const next = await fileAPI.getDrives();
+        const sig = next.map((d) => `${d.letter}:${d.size ?? ''}:${d.free ?? ''}`).join('|');
+        if (sig !== lastSig) {
+          lastSig = sig;
+          setDrives(next);
+        }
+      } catch { /* ignore — next tick will retry */ }
+    }, 2000);
+    return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
     if (!currentPath) return;
-    window.fileAPI.nav.getMostUsed(8).then(setMostUsed);
+    fileAPI.nav.getMostUsed(8).then(setMostUsed);
   }, [currentPath]);
 
   const toggleDrive = useCallback(async (drivePath: string) => {
@@ -143,7 +173,7 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
   });
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto select-none pb-4" style={{ background: '#161616' }}>
+    <div className="h-full flex flex-col overflow-y-auto select-none pb-4" style={{ background: 'transparent' }}>
 
       {/* ── Most Used ─────────────────────── */}
       {mostUsed.length > 0 && (
@@ -151,10 +181,11 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
           {mostUsed.map((mu) => (
             <PlainRow
               key={mu.path}
-              label={pathBasename(mu.path) || mu.path}
+              label={basename(mu.path) || mu.path}
               icon={<PlaceIcon place="recent" size={14} />}
               indent={1}
               {...rowProps(mu.path)}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, path: mu.path }); }}
             />
           ))}
         </Section>
@@ -196,6 +227,28 @@ export function FolderTree({ currentPath, onNavigate, onDrop }: FolderTreeProps)
           />
         ))}
       </Section>
+
+      {ctxMenu && createPortal(
+        <div
+          className="fp-glass"
+          style={{
+            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999,
+            background: 'rgba(24, 20, 30, 0.92)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)',
+            padding: 6, minWidth: 200,
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <button
+            className="fp-ctx-item w-full"
+            onClick={() => handleRemoveMostUsed(ctxMenu.path)}
+          >
+            Remove from Most Used
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -208,18 +261,26 @@ function Section({ label, open, onToggle, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <Collapsible.Root open={open} onOpenChange={onToggle} className="mt-2">
+    <Collapsible.Root open={open} onOpenChange={onToggle} className="mt-3">
       <Collapsible.Trigger asChild>
         <button
-          className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left"
-          style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+          className="flex items-center gap-1.5 w-full px-3 py-1 text-left transition-colors"
+          style={{
+            fontSize: 9.5,
+            color: 'var(--text-faint)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.14em',
+            fontWeight: 600,
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-faint)'; }}
         >
-          {open ? <PiCaretDown size={10} /> : <PiCaretRight size={10} />}
+          {open ? <PiCaretDown size={9} /> : <PiCaretRight size={9} />}
           {label}
         </button>
       </Collapsible.Trigger>
       <Collapsible.Content className="fp-section-content overflow-hidden">
-        {children}
+        <div style={{ marginTop: 4 }}>{children}</div>
       </Collapsible.Content>
     </Collapsible.Root>
   );
@@ -233,36 +294,45 @@ interface PlainRowProps {
   isDragOver?: boolean;
   indent?: number;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: () => void;
   onDrop?: (e: React.DragEvent) => void;
 }
 
-function PlainRow({ label, icon, isActive, isDragOver, indent = 0, onClick, onDragOver, onDragLeave, onDrop }: PlainRowProps) {
+function PlainRow({ label, icon, isActive, isDragOver, indent = 0, onClick, onContextMenu, onDragOver, onDragLeave, onDrop }: PlainRowProps) {
   return (
     <button
-      className="flex items-center gap-2 w-full text-left transition-colors rounded-md"
+      className="flex items-center gap-2.5 w-full text-left transition-colors relative"
       style={{
         paddingLeft: 12 + indent * 12,
         paddingRight: 8,
         paddingTop: 5,
         paddingBottom: 5,
-        marginLeft: 4,
-        marginRight: 4,
-        width: 'calc(100% - 8px)',
-        background: isDragOver ? 'rgba(59,130,246,0.18)' : isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
-        color: isActive ? '#93c5fd' : '#b0b0b0',
+        marginLeft: 6,
+        marginRight: 6,
+        borderRadius: 8,
+        width: 'calc(100% - 12px)',
+        background: isDragOver ? 'var(--accent-strong)' : isActive ? 'var(--accent-soft)' : 'transparent',
+        color: isActive ? 'var(--accent-text)' : 'var(--text-dim)',
         fontSize: 12.5,
+        fontWeight: isActive ? 500 : 400,
+        letterSpacing: '-0.005em',
+        boxShadow: isDragOver ? 'inset 0 0 0 1px var(--accent)' : 'none',
       }}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#222'; }}
-      onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+      onMouseEnter={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } }}
+      onMouseLeave={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; } }}
     >
-      {icon}
-      <span className="truncate" style={{ fontFamily: 'Inter, sans-serif' }}>{label}</span>
+      {isActive && (
+        <span style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 2, background: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
+      )}
+      <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.85 }}>{icon}</span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }
@@ -291,62 +361,77 @@ function TreeDriveRow({ drive, nodes, isOpen, isLoading, currentPath, dragOver, 
     : null;
 
   return (
-    <div className="mb-0.5">
+    <div className="mb-0.5 relative">
       {/* Drive header row */}
       <div
-        className="flex items-center gap-1.5 rounded-md cursor-pointer transition-colors"
+        className="flex items-center gap-1.5 cursor-pointer transition-colors relative"
         style={{
-          marginLeft: 4,
-          marginRight: 4,
-          width: 'calc(100% - 8px)',
-          background: isDragOver ? 'rgba(59,130,246,0.18)' : isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
-          color: isActive ? '#93c5fd' : '#b0b0b0',
+          marginLeft: 6,
+          marginRight: 6,
+          borderRadius: 8,
+          width: 'calc(100% - 12px)',
+          background: isDragOver ? 'var(--accent-strong)' : isActive ? 'var(--accent-soft)' : 'transparent',
+          color: isActive ? 'var(--accent-text)' : 'var(--text-dim)',
           fontSize: 12.5,
-          padding: '4px 8px 4px 4px',
+          fontWeight: isActive ? 500 : 400,
+          padding: '5px 8px 5px 4px',
+          boxShadow: isDragOver ? 'inset 0 0 0 1px var(--accent)' : 'none',
         }}
-        onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#222'; }}
-        onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        onMouseEnter={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } }}
+        onMouseLeave={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; } }}
         onDragOver={(e) => { e.preventDefault(); onDragOver(drive.path); }}
         onDragLeave={() => onDragOver(null)}
         onDrop={(e) => onDrop(e, drive.path)}
         onClick={() => onNavigate(drive.path)}
       >
+        {isActive && (
+          <span style={{ position: 'absolute', left: -6, top: 6, bottom: 6, width: 2, background: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
+        )}
         <button
-          className="flex-shrink-0 flex items-center justify-center w-4 h-4 rounded"
-          style={{ color: '#555' }}
+          className="flex-shrink-0 flex items-center justify-center w-4 h-4 rounded transition-colors"
+          style={{ color: 'var(--text-faint)' }}
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
         >
           {isLoading
-            ? <span className="w-2.5 h-2.5 border border-gray-500 border-t-transparent rounded-full animate-spin block" />
+            ? <span className="w-2.5 h-2.5 rounded-full animate-spin block" style={{ border: '1.5px solid var(--text-faint)', borderTopColor: 'transparent' }} />
             : isOpen
-            ? <PiCaretDown size={11} />
-            : <PiCaretRight size={11} />
+            ? <PiCaretDown size={10} />
+            : <PiCaretRight size={10} />
           }
         </button>
         <DriveIcon driveType={drive.type} size={15} />
-        <span className="truncate flex-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <span className="truncate flex-1" style={{ letterSpacing: '-0.005em' }}>
           {drive.label || drive.letter}
         </span>
-        <span style={{ fontSize: 10, color: '#444', fontFamily: 'JetBrains Mono, monospace', flexShrink: 0 }}>
+        <span style={{ fontSize: 9.5, color: 'var(--text-ghost)', fontFamily: 'Geist Mono, monospace', flexShrink: 0, letterSpacing: '0.02em' }}>
           {drive.letter}
         </span>
       </div>
 
       {/* Storage bar — shown when size info is available */}
       {usedPct !== null && drive.size && drive.free !== undefined && (
-        <div style={{ marginLeft: 20, marginRight: 8, marginBottom: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#444', marginBottom: 3 }}>
+        <div style={{ marginLeft: 26, marginRight: 12, marginTop: 2, marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: 'var(--text-ghost)', marginBottom: 4, fontFamily: 'Geist Mono, monospace', letterSpacing: '0.01em' }}>
             <span>{formatSize(drive.free)} free</span>
-            <span>{formatSize(drive.size)} total</span>
+            <span>{formatSize(drive.size)}</span>
           </div>
-          <div style={{ height: 3, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
                 width: `${usedPct}%`,
-                background: usedPct > 90 ? '#ef4444' : usedPct > 70 ? '#f59e0b' : '#3b82f6',
+                background: usedPct > 90
+                  ? 'linear-gradient(90deg, #f06e7e, #ff8a96)'
+                  : usedPct > 70
+                  ? 'linear-gradient(90deg, #f5a25d, #ffb77a)'
+                  : 'linear-gradient(90deg, var(--accent), var(--accent-hover))',
                 borderRadius: 2,
                 transition: 'width 400ms ease',
+                boxShadow: usedPct > 90
+                  ? '0 0 8px rgba(240,110,126,0.4)'
+                  : usedPct > 70
+                  ? '0 0 8px rgba(245,162,93,0.35)'
+                  : '0 0 8px var(--accent-glow)',
               }}
             />
           </div>
@@ -409,36 +494,43 @@ function TreeNodeRow({ node, depth, currentPath, dragOver, onNavigate, onDrop, o
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 rounded-md cursor-pointer transition-colors"
+        className="flex items-center gap-1.5 cursor-pointer transition-colors relative"
         style={{
-          marginLeft: 4 + depth * 14,
-          marginRight: 4,
-          background: isDragOver ? 'rgba(59,130,246,0.18)' : isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
-          color: isActive ? '#93c5fd' : '#b0b0b0',
+          marginLeft: 6 + depth * 14,
+          marginRight: 6,
+          borderRadius: 8,
+          background: isDragOver ? 'var(--accent-strong)' : isActive ? 'var(--accent-soft)' : 'transparent',
+          color: isActive ? 'var(--accent-text)' : 'var(--text-dim)',
           fontSize: 12.5,
+          fontWeight: isActive ? 500 : 400,
           padding: '4px 6px 4px 4px',
+          letterSpacing: '-0.005em',
+          boxShadow: isDragOver ? 'inset 0 0 0 1px var(--accent)' : 'none',
         }}
-        onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#222'; }}
-        onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        onMouseEnter={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } }}
+        onMouseLeave={(e) => { if (!isActive && !isDragOver) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; } }}
         onDragOver={(e) => { e.preventDefault(); onDragOver(node.path); }}
         onDragLeave={() => onDragOver(null)}
         onDrop={(e) => onDrop(e, node.path)}
         onClick={() => onNavigate(node.path)}
       >
+        {isActive && (
+          <span style={{ position: 'absolute', left: -6, top: 5, bottom: 5, width: 2, background: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
+        )}
         <button
           className="flex-shrink-0 flex items-center justify-center w-4 h-4"
-          style={{ color: '#555', visibility: showToggle ? 'visible' : 'hidden' }}
+          style={{ color: 'var(--text-faint)', visibility: showToggle ? 'visible' : 'hidden' }}
           onClick={handleToggle}
         >
           {node.isLoading
-            ? <span className="w-2.5 h-2.5 border border-gray-500 border-t-transparent rounded-full animate-spin block" />
+            ? <span className="w-2.5 h-2.5 rounded-full animate-spin block" style={{ border: '1.5px solid var(--text-faint)', borderTopColor: 'transparent' }} />
             : node.isOpen
-            ? <PiCaretDown size={11} />
-            : <PiCaretRight size={11} />
+            ? <PiCaretDown size={10} />
+            : <PiCaretRight size={10} />
           }
         </button>
         <FileIcon extension="" isDirectory isOpen={node.isOpen} size={14} />
-        <span className="truncate flex-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <span className="truncate flex-1">
           {node.name}
         </span>
       </div>

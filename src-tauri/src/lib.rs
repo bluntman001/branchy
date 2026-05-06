@@ -1,0 +1,409 @@
+mod icons;
+mod fileops;
+mod fswatch;
+#[cfg(windows)]
+mod thumbcache;
+
+use fileops::*;
+use icons::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+// ── Types shared with frontend ──────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_directory: bool,
+    pub size: f64,
+    pub modified: f64,
+    pub created: f64,
+    pub extension: String,
+    #[serde(default)]
+    pub is_hidden: bool,
+    #[serde(default)]
+    pub is_system: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveInfo {
+    pub letter: String,
+    pub label: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub drive_type: String,
+    pub size: Option<f64>,
+    pub free: Option<f64>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct FilePreview {
+    #[serde(rename = "type")]
+    pub preview_type: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub api_key: String,
+    pub start_dir: String,
+    pub confirm_delete: bool,
+    pub show_hidden: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MostUsedEntry {
+    pub path: String,
+    pub count: u64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenWithApp {
+    pub name: String,
+    pub exe_path: String,
+}
+
+// ── Tauri commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn list_directory(dir_path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let entries = fileops::list_directory_native(&dir_path).map_err(|e| e.to_string())?;
+        if show_hidden {
+            Ok(entries)
+        } else {
+            Ok(entries.into_iter().filter(|e| !e.name.starts_with('.')).collect())
+        }
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
+    std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn move_files(source_paths: Vec<String>, dest_dir: String) -> Result<(), String> {
+    fileops::move_files_impl(&source_paths, &dest_dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn copy_files(source_paths: Vec<String>, dest_dir: String) -> Result<(), String> {
+    fileops::copy_files_impl(&source_paths, &dest_dir).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CopyProgress {
+    op_id: String,
+    current_file: String,
+    bytes_done: f64,
+    bytes_total: f64,
+    done: bool,
+    error: Option<String>,
+}
+
+/// Async copy with progress events. Returns immediately; progress is
+/// emitted via the `copy-progress` Tauri event keyed by `op_id`. The UI
+/// stays responsive while large copies run on a blocking thread pool.
+#[tauri::command]
+async fn copy_files_async(
+    app: tauri::AppHandle,
+    op_id: String,
+    source_paths: Vec<String>,
+    dest_dir: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    tokio::task::spawn_blocking(move || {
+        let bytes_total = fileops::total_size_of_paths(&source_paths) as f64;
+        let app_clone = app.clone();
+        let op_id_clone = op_id.clone();
+        // Throttle event emission so we don't flood the IPC bridge — at
+        // most one progress event per ~50ms or per file change.
+        let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let mut last_file = String::new();
+        let result = fileops::copy_files_with_progress(
+            &source_paths,
+            &dest_dir,
+            |name, bytes_done| {
+                let now = std::time::Instant::now();
+                let file_changed = name != last_file;
+                if file_changed || now.duration_since(last_emit).as_millis() >= 50 {
+                    last_emit = now;
+                    last_file = name.to_string();
+                    let _ = app_clone.emit("copy-progress", CopyProgress {
+                        op_id: op_id_clone.clone(),
+                        current_file: name.to_string(),
+                        bytes_done: bytes_done as f64,
+                        bytes_total,
+                        done: false,
+                        error: None,
+                    });
+                }
+            },
+        );
+        let _ = app.emit("copy-progress", CopyProgress {
+            op_id: op_id.clone(),
+            current_file: String::new(),
+            bytes_done: bytes_total,
+            bytes_total,
+            done: true,
+            error: result.err().map(|e| e.to_string()),
+        });
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_files(paths: Vec<String>) -> Result<(), String> {
+    for p in &paths {
+        trash::delete(p).map_err(|e| format!("Failed to trash {}: {}", p, e))?;
+    }
+    Ok(())
+}
+
+/// Permanent delete (no recycle bin). Used as a fallback when `delete_files`
+/// fails — typical on network drives (Z:, SMB, ZFS shares) which Windows
+/// Recycle Bin doesn't support.
+#[tauri::command]
+fn watch_directory(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    fswatch::watch(app, path)
+}
+
+#[tauri::command]
+fn unwatch_directory() {
+    fswatch::unwatch();
+}
+
+#[tauri::command]
+fn permanent_delete_files(paths: Vec<String>) -> Result<(), String> {
+    for p in &paths {
+        let path = std::path::Path::new(p);
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+        result.map_err(|e| format!("Failed to delete {}: {}", p, e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn create_folder(folder_path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&folder_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_file(file_path: String) -> Result<(), String> {
+    if std::path::Path::new(&file_path).exists() {
+        return Err("File already exists".into());
+    }
+    std::fs::write(&file_path, "").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn search_files(root_path: String, query: String) -> Result<Vec<FileEntry>, String> {
+    fileops::search_files_impl(&root_path, &query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_file_preview(file_path: String) -> Result<FilePreview, String> {
+    fileops::get_file_preview_impl(&file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_file(file_path: String) -> Result<(), String> {
+    open::that(&file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_drives() -> Result<Vec<DriveInfo>, String> {
+    tokio::task::spawn_blocking(move || {
+        fileops::get_drives_impl().map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_stats(file_path: String) -> Result<Option<FileEntry>, String> {
+    fileops::get_stats_impl(&file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn has_subdirectories(dir_path: String) -> Result<bool, String> {
+    fileops::has_subdirectories_impl(&dir_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_shell_icon(file_path: String) -> String {
+    tokio::task::spawn_blocking(move || {
+        icons::get_shell_icon_impl_single(&file_path)
+    }).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn get_shell_icons_batch(file_paths: Vec<String>) -> HashMap<String, String> {
+    tokio::task::spawn_blocking(move || {
+        icons::get_shell_icons_batch_impl(&file_paths)
+    }).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn get_shell_thumbnails_batch(file_paths: Vec<String>) -> HashMap<String, String> {
+    tokio::task::spawn_blocking(move || {
+        icons::get_shell_thumbnails_batch_impl(&file_paths)
+    }).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn generate_shell_thumbnails_batch(file_paths: Vec<String>) -> HashMap<String, String> {
+    tokio::task::spawn_blocking(move || {
+        icons::generate_shell_thumbnails_batch_impl(&file_paths)
+    }).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn generate_shell_thumbnails_paths(file_paths: Vec<String>) -> HashMap<String, String> {
+    tokio::task::spawn_blocking(move || {
+        icons::generate_shell_thumbnails_paths_impl(&file_paths)
+    }).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn get_folder_size(dir_path: String) -> Result<f64, String> {
+    tokio::task::spawn_blocking(move || {
+        fileops::get_folder_size_impl(&dir_path)
+    }).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_open_with_apps(ext: String) -> Vec<OpenWithApp> {
+    fileops::get_open_with_apps_impl(&ext)
+}
+
+#[tauri::command]
+fn open_file_with(file_path: String, exe_path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new(&exe_path)
+            .arg(&file_path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(&exe_path)
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn show_open_with_dialog(file_path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("rundll32.exe")
+            .args(["shell32.dll,OpenAs_RunDLL", &file_path])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("rundll32.exe")
+            .args(["shell32.dll,OpenAs_RunDLL", &file_path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_home_dir() -> String {
+    dirs::home_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+/// Returns the first CLI arg if it points to an existing directory.
+/// Used when Branchy is launched as the default file explorer — Windows
+/// passes the target folder path as argv[1].
+#[tauri::command]
+fn get_initial_path() -> Option<String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    for a in args {
+        let trimmed = a.trim_matches('"').to_string();
+        if std::path::Path::new(&trimmed).is_dir() {
+            return Some(trimmed);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn get_special_paths() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\Users"));
+    m.insert("home".into(), home.to_string_lossy().to_string());
+    m.insert("desktop".into(), dirs::desktop_dir().unwrap_or_else(|| home.join("Desktop")).to_string_lossy().to_string());
+    m.insert("downloads".into(), dirs::download_dir().unwrap_or_else(|| home.join("Downloads")).to_string_lossy().to_string());
+    m.insert("documents".into(), dirs::document_dir().unwrap_or_else(|| home.join("Documents")).to_string_lossy().to_string());
+    m.insert("music".into(), dirs::audio_dir().unwrap_or_else(|| home.join("Music")).to_string_lossy().to_string());
+    m.insert("pictures".into(), dirs::picture_dir().unwrap_or_else(|| home.join("Pictures")).to_string_lossy().to_string());
+    m
+}
+
+// ── App entry ───────────────────────────────────────────────────────────────
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_drag::init())
+        .invoke_handler(tauri::generate_handler![
+            list_directory,
+            rename_file,
+            move_files,
+            copy_files,
+            copy_files_async,
+            delete_files,
+            permanent_delete_files,
+            watch_directory,
+            unwatch_directory,
+            create_folder,
+            create_file,
+            search_files,
+            get_file_preview,
+            open_file,
+            get_drives,
+            get_stats,
+            has_subdirectories,
+            get_shell_icon,
+            get_shell_icons_batch,
+            get_shell_thumbnails_batch,
+            generate_shell_thumbnails_batch,
+            generate_shell_thumbnails_paths,
+            get_folder_size,
+            get_open_with_apps,
+            open_file_with,
+            show_open_with_dialog,
+            get_home_dir,
+            get_initial_path,
+            get_special_paths,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { FileEntry } from '../../types';
+import { parentPath } from '../utils/path';
+import { fileAPI } from '../../api';
 import toast from 'react-hot-toast';
 
 export function useDirectory(initialPath: string) {
@@ -12,7 +14,7 @@ export function useDirectory(initialPath: string) {
   const load = useCallback(async (dirPath: string) => {
     setLoading(true);
     try {
-      const result = await window.fileAPI.listDirectory(dirPath);
+      const result = await fileAPI.listDirectory(dirPath);
       setEntries(result);
     } catch (err) {
       toast.error(`Cannot open folder: ${(err as Error).message}`);
@@ -59,15 +61,15 @@ export function useDirectory(initialPath: string) {
   }, [history, historyIndex, load]);
 
   const goUp = useCallback(() => {
-    const parent = getParentPath(currentPath);
+    const parent = parentPath(currentPath);
     if (parent !== currentPath) {
       navigate(parent);
     }
   }, [currentPath, navigate]);
 
   useEffect(() => {
-    load(initialPath);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    fileAPI.nav.trackAccess(currentPath).catch(() => {});
+  }, [currentPath]);
 
   return {
     currentPath,
@@ -81,16 +83,4 @@ export function useDirectory(initialPath: string) {
     canGoBack: historyIndex > 0,
     canGoForward: historyIndex < history.length - 1,
   };
-}
-
-function getParentPath(p: string): string {
-  const normalized = p.replace(/\\/g, '/');
-  // Windows root: C:/
-  if (/^[A-Za-z]:[\\/]?$/.test(p)) return p;
-  const lastSlash = normalized.lastIndexOf('/');
-  if (lastSlash <= 0) return p;
-  const parent = normalized.slice(0, lastSlash) || '/';
-  // Keep trailing slash for drive roots on Windows
-  if (/^[A-Za-z]:$/.test(parent)) return parent + '\\';
-  return parent;
 }

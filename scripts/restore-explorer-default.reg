@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+; ─────────────────────────────────────────────────────────────────────────────
+; Reverts Windows Explorer as the default. Removes the HKCU overrides written
+; by install-branchy-default.reg. The underlying HKLM system defaults are
+; untouched and take over again automatically.
+; ─────────────────────────────────────────────────────────────────────────────
+
+[-HKEY_CURRENT_USER\Software\Classes\CLSID\{52205FD8-5DFB-447D-801A-D0B52F2E83E1}]
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\open]
+
+[-HKEY_CURRENT_USER\Software\Classes\Folder\shell\open]
