@@ -101,7 +101,7 @@ function AppShell({ initialDir, chatOpenInitial, settings: initialSettings }: Bo
   // Async copy progress — startCopy returns immediately, the UI shows
   // a progress card until done. If the copy lands in the user's current
   // folder, refresh on completion so the new files show up.
-  const { ops: copyOps, startCopy } = useCopyOps((finished) => {
+  const { ops: copyOps, startCopy, startMove } = useCopyOps((finished) => {
     if (!finished.error && finished.destDir === dir.currentPath) dir.refresh();
   });
 
@@ -322,6 +322,7 @@ function AppShell({ initialDir, chatOpenInitial, settings: initialSettings }: Bo
             onRefresh={dir.refresh}
             onDrop={handleDrop}
             onCopyAsync={startCopy}
+            onMoveAsync={startMove}
           />
         </div>
 

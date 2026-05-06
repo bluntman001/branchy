@@ -49,6 +49,7 @@ export interface FileAPI {
   moveFiles(sourcePaths: string[], destDir: string): Promise<void>;
   copyFiles(sourcePaths: string[], destDir: string): Promise<void>;
   copyFilesAsync(opId: string, sourcePaths: string[], destDir: string): Promise<void>;
+  moveFilesAsync(opId: string, sourcePaths: string[], destDir: string): Promise<void>;
   deleteFiles(paths: string[]): Promise<void>;
   permanentDeleteFiles(paths: string[]): Promise<void>;
   watchDirectory(path: string): Promise<void>;

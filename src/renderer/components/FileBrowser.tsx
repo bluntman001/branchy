@@ -43,6 +43,7 @@ interface FileBrowserProps {
   onRefresh: () => void;
   onDrop: (sourcePaths: string[], destDir: string) => void;
   onCopyAsync: (sourcePaths: string[], destDir: string) => Promise<string>;
+  onMoveAsync: (sourcePaths: string[], destDir: string) => Promise<string>;
 }
 
 interface RenameState { path: string; value: string; }
@@ -51,7 +52,7 @@ export function FileBrowser({
   entries, loading, currentPath, selected,
   canGoBack, canGoForward,
   onNavigate, onSelect, onSelectAll, onClearSelection,
-  onGoBack, onGoForward, onGoUp, onRefresh, onDrop, onCopyAsync,
+  onGoBack, onGoForward, onGoUp, onRefresh, onDrop, onCopyAsync, onMoveAsync,
 }: FileBrowserProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const typeaheadBuf  = useRef('');
@@ -446,15 +447,12 @@ export function FileBrowser({
     if (!clipboard) return;
     try {
       if (clipboard.mode === 'copy') {
-        // Fire and forget — the CopyProgress overlay shows progress and
-        // refreshes the folder when done. UI stays responsive even on
-        // multi-GB copies.
         await onCopyAsync(clipboard.paths, currentPath);
       } else {
-        await fileAPI.moveFiles(clipboard.paths, currentPath);
+        // Async move: same-volume = instant rename, cross-volume = copy
+        // with byte progress. UI never blocks either way.
+        await onMoveAsync(clipboard.paths, currentPath);
         setClipboard(null);
-        toast.success('Moved');
-        onRefresh();
       }
     } catch (err) { toast.error(`Paste failed: ${(err as Error).message}`); }
   };

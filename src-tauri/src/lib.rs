@@ -108,11 +108,71 @@ struct CopyProgress {
     bytes_total: f64,
     done: bool,
     error: Option<String>,
+    /// "copy" or "move" — UI shows the right label.
+    kind: String,
 }
 
-/// Async copy with progress events. Returns immediately; progress is
-/// emitted via the `copy-progress` Tauri event keyed by `op_id`. The UI
-/// stays responsive while large copies run on a blocking thread pool.
+/// Run an async copy or move with progress events. Returns immediately;
+/// progress flows through the `copy-progress` Tauri event (kind = "copy"
+/// or "move"). UI stays responsive — even for a same-volume rename, the
+/// previous synchronous IPC could stall the renderer; this path keeps
+/// the renderer free.
+fn run_transfer(
+    app: tauri::AppHandle,
+    op_id: String,
+    source_paths: Vec<String>,
+    dest_dir: String,
+    is_move: bool,
+) {
+    use tauri::Emitter;
+    tokio::task::spawn_blocking(move || {
+        let bytes_total = fileops::total_size_of_paths(&source_paths) as f64;
+        let app_clone = app.clone();
+        let op_id_clone = op_id.clone();
+        let kind: String = if is_move { "move".into() } else { "copy".into() };
+        let kind_clone = kind.clone();
+        let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let mut last_file = String::new();
+        let report = move |name: &str, bytes_done: u64,
+                            last_emit: &mut std::time::Instant,
+                            last_file: &mut String| {
+            let now = std::time::Instant::now();
+            let file_changed = name != last_file.as_str();
+            if file_changed || now.duration_since(*last_emit).as_millis() >= 50 {
+                *last_emit = now;
+                *last_file = name.to_string();
+                let _ = app_clone.emit("copy-progress", CopyProgress {
+                    op_id: op_id_clone.clone(),
+                    current_file: name.to_string(),
+                    bytes_done: bytes_done as f64,
+                    bytes_total,
+                    done: false,
+                    error: None,
+                    kind: kind_clone.clone(),
+                });
+            }
+        };
+        let result = if is_move {
+            fileops::move_files_with_progress(&source_paths, &dest_dir, |n, b| {
+                report(n, b, &mut last_emit, &mut last_file);
+            })
+        } else {
+            fileops::copy_files_with_progress(&source_paths, &dest_dir, |n, b| {
+                report(n, b, &mut last_emit, &mut last_file);
+            })
+        };
+        let _ = app.emit("copy-progress", CopyProgress {
+            op_id,
+            current_file: String::new(),
+            bytes_done: bytes_total,
+            bytes_total,
+            done: true,
+            error: result.err().map(|e| e.to_string()),
+            kind,
+        });
+    });
+}
+
 #[tauri::command]
 async fn copy_files_async(
     app: tauri::AppHandle,
@@ -120,44 +180,18 @@ async fn copy_files_async(
     source_paths: Vec<String>,
     dest_dir: String,
 ) -> Result<(), String> {
-    use tauri::Emitter;
-    tokio::task::spawn_blocking(move || {
-        let bytes_total = fileops::total_size_of_paths(&source_paths) as f64;
-        let app_clone = app.clone();
-        let op_id_clone = op_id.clone();
-        // Throttle event emission so we don't flood the IPC bridge — at
-        // most one progress event per ~50ms or per file change.
-        let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
-        let mut last_file = String::new();
-        let result = fileops::copy_files_with_progress(
-            &source_paths,
-            &dest_dir,
-            |name, bytes_done| {
-                let now = std::time::Instant::now();
-                let file_changed = name != last_file;
-                if file_changed || now.duration_since(last_emit).as_millis() >= 50 {
-                    last_emit = now;
-                    last_file = name.to_string();
-                    let _ = app_clone.emit("copy-progress", CopyProgress {
-                        op_id: op_id_clone.clone(),
-                        current_file: name.to_string(),
-                        bytes_done: bytes_done as f64,
-                        bytes_total,
-                        done: false,
-                        error: None,
-                    });
-                }
-            },
-        );
-        let _ = app.emit("copy-progress", CopyProgress {
-            op_id: op_id.clone(),
-            current_file: String::new(),
-            bytes_done: bytes_total,
-            bytes_total,
-            done: true,
-            error: result.err().map(|e| e.to_string()),
-        });
-    });
+    run_transfer(app, op_id, source_paths, dest_dir, false);
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_files_async(
+    app: tauri::AppHandle,
+    op_id: String,
+    source_paths: Vec<String>,
+    dest_dir: String,
+) -> Result<(), String> {
+    run_transfer(app, op_id, source_paths, dest_dir, true);
     Ok(())
 }
 
@@ -464,6 +498,7 @@ pub fn run() {
             move_files,
             copy_files,
             copy_files_async,
+            move_files_async,
             delete_files,
             permanent_delete_files,
             watch_directory,

@@ -362,6 +362,52 @@ pub fn copy_files_impl(source_paths: &[String], dest_dir: &str) -> Result<(), io
     Ok(())
 }
 
+/// Move with progress. Tries `rename` first (instant for same-volume on
+/// Windows / NTFS / SMB) — only falls back to copy+delete (with byte
+/// progress) when crossing volumes or filesystems. The progress callback
+/// gets `bytes_done = total` immediately for rename'd files so the UI
+/// reflects them as instantly complete.
+pub fn move_files_with_progress<F>(
+    source_paths: &[String],
+    dest_dir: &str,
+    mut on_progress: F,
+) -> Result<(), io::Error>
+where
+    F: FnMut(&str, u64),
+{
+    let dest = Path::new(dest_dir);
+    if !dest.is_dir() {
+        std::fs::create_dir_all(dest)?;
+    }
+    let mut bytes_done: u64 = 0;
+    for src in source_paths {
+        let src_path = Path::new(src);
+        let file_name = src_path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no filename"))?;
+        let dst = dest.join(file_name);
+        let name = file_name.to_string_lossy().to_string();
+        match std::fs::rename(src_path, &dst) {
+            Ok(_) => {
+                // Same-volume rename — count whole size as done in one tick.
+                let size = std::fs::metadata(&dst).map(|m| m.len()).unwrap_or(0);
+                bytes_done += size;
+                on_progress(&name, bytes_done);
+            }
+            Err(_) => {
+                // Cross-volume — copy with byte progress, then delete source.
+                copy_item_with_progress(src_path, &dst, &mut bytes_done, &mut on_progress)?;
+                if src_path.is_dir() {
+                    std::fs::remove_dir_all(src_path)?;
+                } else {
+                    std::fs::remove_file(src_path)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Recursively measure total byte size for a set of paths. Used to report
 /// "x of y bytes" progress to the UI without blocking on a per-byte
 /// stream count.

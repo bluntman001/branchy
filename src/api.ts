@@ -46,6 +46,12 @@ export const fileAPI = {
     return invoke('copy_files_async', { opId, sourcePaths, destDir });
   },
 
+  /// Async move (rename if same-volume; copy+delete with progress otherwise).
+  /// Same `copy-progress` event stream as copies, with `kind: "move"`.
+  async moveFilesAsync(opId: string, sourcePaths: string[], destDir: string): Promise<void> {
+    return invoke('move_files_async', { opId, sourcePaths, destDir });
+  },
+
   async deleteFiles(paths: string[]): Promise<void> {
     return invoke('delete_files', { paths });
   },

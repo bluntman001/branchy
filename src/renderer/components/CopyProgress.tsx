@@ -59,7 +59,11 @@ function CopyCard({ op }: { op: CopyOp }) {
           <FiCopy size={14} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
         )}
         <span style={{ fontWeight: 500, letterSpacing: '-0.005em' }}>
-          {op.error ? 'Copy failed' : op.done ? 'Copy complete' : 'Copying…'}
+          {op.error
+            ? (op.kind === 'move' ? 'Move failed' : 'Copy failed')
+            : op.done
+              ? (op.kind === 'move' ? 'Move complete' : 'Copy complete')
+              : (op.kind === 'move' ? 'Moving…' : 'Copying…')}
         </span>
         <span style={{ marginLeft: 'auto', color: 'var(--text-faint)', fontFamily: 'Geist Mono, monospace', fontSize: 11 }}>
           {Math.round(pct)}%
