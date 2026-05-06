@@ -64,6 +64,12 @@ export const fileAPI = {
     return invoke('unwatch_directory');
   },
 
+  /// Extract an archive into destDir using WinRAR (preferred) or 7-Zip.
+  /// Returns the name of the tool that ran, throws if neither is installed.
+  async extractArchive(archivePath: string, destDir: string): Promise<string> {
+    return invoke<string>('extract_archive', { archivePath, destDir });
+  },
+
   async createFolder(folderPath: string): Promise<void> {
     return invoke('create_folder', { folderPath });
   },

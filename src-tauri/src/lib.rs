@@ -221,7 +221,44 @@ fn get_file_preview(file_path: String) -> Result<FilePreview, String> {
 
 #[tauri::command]
 fn open_file(file_path: String) -> Result<(), String> {
-    open::that(&file_path).map_err(|e| e.to_string())
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::iter::once;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        // Direct ShellExecuteW — accepts a wide-encoded path verbatim,
+        // so filenames containing `(`, `)`, `[`, `]`, `&`, spaces etc.
+        // work correctly. The previous `open::that` shell-out couldn't
+        // handle some of these without manual quoting.
+        let wide_path: Vec<u16> = OsStr::new(&file_path).encode_wide().chain(once(0)).collect();
+        let verb: Vec<u16> = OsStr::new("open").encode_wide().chain(once(0)).collect();
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(verb.as_ptr()),
+                PCWSTR(wide_path.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW returns a HINSTANCE; values > 32 indicate success,
+        // anything ≤ 32 is a Win32 error code.
+        let code = result.0 as usize;
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(format!("ShellExecuteW failed (code {}). The file may have no associated app, or the path is unreachable.", code))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        open::that(&file_path).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -286,6 +323,54 @@ async fn get_folder_size(dir_path: String) -> Result<f64, String> {
 #[tauri::command]
 fn get_open_with_apps(ext: String) -> Vec<OpenWithApp> {
     fileops::get_open_with_apps_impl(&ext)
+}
+
+/// Extract an archive (.rar/.zip/.7z/etc.) into the given destination
+/// directory using WinRAR if installed, falling back to 7-Zip's CLI.
+/// Spawned detached — UI stays responsive while extraction runs.
+#[tauri::command]
+fn extract_archive(archive_path: String, dest_dir: String) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        // Try WinRAR first (handles every common format), then 7-Zip CLI.
+        let winrar_paths = [
+            r"C:\Program Files\WinRAR\WinRAR.exe",
+            r"C:\Program Files (x86)\WinRAR\WinRAR.exe",
+        ];
+        for p in winrar_paths {
+            if std::path::Path::new(p).exists() {
+                std::process::Command::new(p)
+                    // x = extract with full paths, -o+ = overwrite, -ibck = minimised
+                    .args(["x", "-o+", "-ibck", &archive_path, &format!("{}\\", dest_dir.trim_end_matches(['\\', '/']))])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+                return Ok("WinRAR".into());
+            }
+        }
+        let sevenzip_paths = [
+            r"C:\Program Files\7-Zip\7z.exe",
+            r"C:\Program Files (x86)\7-Zip\7z.exe",
+        ];
+        for p in sevenzip_paths {
+            if std::path::Path::new(p).exists() {
+                std::process::Command::new(p)
+                    .args(["x", &archive_path, &format!("-o{}", dest_dir), "-y"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+                return Ok("7-Zip".into());
+            }
+        }
+        Err("No archive tool found. Install WinRAR or 7-Zip to extract archives.".into())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Extraction is only implemented on Windows".into())
+    }
 }
 
 #[tauri::command]
@@ -398,6 +483,7 @@ pub fn run() {
             generate_shell_thumbnails_paths,
             get_folder_size,
             get_open_with_apps,
+            extract_archive,
             open_file_with,
             show_open_with_dialog,
             get_home_dir,

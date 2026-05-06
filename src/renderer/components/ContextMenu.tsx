@@ -79,6 +79,7 @@ export interface FileContextMenuProps {
   onProperties: () => void;
   onNewFolder: () => void;
   onOpenWith: (exePath: string) => void;
+  onExtract?: () => void;
 }
 
 export function FileContextMenu({
@@ -98,6 +99,7 @@ export function FileContextMenu({
   onProperties,
   onNewFolder,
   onOpenWith,
+  onExtract,
 }: FileContextMenuProps) {
   const multi = selectedCount > 1;
   const [openWithApps, setOpenWithApps] = useState<OpenWithApp[]>([]);
@@ -114,6 +116,8 @@ export function FileContextMenu({
   }, [isDirectory, extension]);
 
   const showOpenWith = !multi && !isDirectory;
+  const ARCHIVE_EXTS = new Set(['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.cab', '.iso']);
+  const showExtract = !multi && !isDirectory && ARCHIVE_EXTS.has(extension.toLowerCase());
 
   return (
     <CM.Root>
@@ -126,6 +130,15 @@ export function FileContextMenu({
               icon={<PiFolderOpen size={14} />}
               label={isDirectory ? 'Open' : 'Open'}
               onSelect={onOpen}
+            />
+          )}
+
+          {/* Extract here (archives only) */}
+          {showExtract && onExtract && (
+            <Item
+              icon={<PiArrowSquareOut size={14} />}
+              label="Extract here"
+              onSelect={onExtract}
             />
           )}
 

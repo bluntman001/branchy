@@ -53,6 +53,7 @@ export interface FileAPI {
   permanentDeleteFiles(paths: string[]): Promise<void>;
   watchDirectory(path: string): Promise<void>;
   unwatchDirectory(): Promise<void>;
+  extractArchive(archivePath: string, destDir: string): Promise<string>;
   createFolder(folderPath: string): Promise<void>;
   createFile(filePath: string): Promise<void>;
   searchFiles(rootPath: string, query: string): Promise<FileEntry[]>;
