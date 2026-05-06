@@ -5,9 +5,10 @@ import { formatSize } from '../utils/formatSize';
 
 interface CopyProgressProps {
   ops: CopyOp[];
+  onDismiss: (opId: string) => void;
 }
 
-export function CopyProgress({ ops }: CopyProgressProps) {
+export function CopyProgress({ ops, onDismiss }: CopyProgressProps) {
   if (ops.length === 0) return null;
   return (
     <div
@@ -23,13 +24,13 @@ export function CopyProgress({ ops }: CopyProgressProps) {
       }}
     >
       {ops.map((op) => (
-        <CopyCard key={op.opId} op={op} />
+        <CopyCard key={op.opId} op={op} onDismiss={() => onDismiss(op.opId)} />
       ))}
     </div>
   );
 }
 
-function CopyCard({ op }: { op: CopyOp }) {
+function CopyCard({ op, onDismiss }: { op: CopyOp; onDismiss: () => void }) {
   const pct = op.bytesTotal > 0 ? Math.min(100, (op.bytesDone / op.bytesTotal) * 100) : 0;
   const elapsedSec = Math.max(0.001, (Date.now() - op.startedAt) / 1000);
   const speedBps = op.bytesDone / elapsedSec;
@@ -68,6 +69,32 @@ function CopyCard({ op }: { op: CopyOp }) {
         <span style={{ marginLeft: 'auto', color: 'var(--text-faint)', fontFamily: 'Geist Mono, monospace', fontSize: 11 }}>
           {Math.round(pct)}%
         </span>
+        <button
+          onClick={onDismiss}
+          title="Dismiss"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 18,
+            height: 18,
+            borderRadius: 4,
+            color: 'var(--text-faint)',
+            background: 'transparent',
+            cursor: 'pointer',
+            marginLeft: 2,
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'transparent';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text-faint)';
+          }}
+        >
+          <FiX size={12} />
+        </button>
       </div>
 
       <div

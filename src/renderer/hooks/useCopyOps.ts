@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { fileAPI } from '../../api';
 
@@ -36,6 +36,12 @@ const LINGER_MS = 1500;
 
 export function useCopyOps(onComplete?: (op: CopyOp) => void) {
   const [ops, setOps] = useState<Record<string, CopyOp>>({});
+  // Hold the latest `onComplete` in a ref so the listener effect mounts
+  // only once. Including `onComplete` in the dep array tore down the
+  // effect on every render, leaving any pending dismiss-timeout bound to
+  // a stale `alive=false` closure and so the card stayed forever.
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   useEffect(() => {
     let alive = true;
@@ -60,7 +66,7 @@ export function useCopyOps(onComplete?: (op: CopyOp) => void) {
       if (p.done) {
         setOps((current) => {
           const finalOp = current[p.opId];
-          if (finalOp) onComplete?.(finalOp);
+          if (finalOp) onCompleteRef.current?.(finalOp);
           return current;
         });
         setTimeout(() => {
@@ -76,7 +82,7 @@ export function useCopyOps(onComplete?: (op: CopyOp) => void) {
       alive = false;
       unlistenPromise.then((u) => u()).catch(() => {});
     };
-  }, [onComplete]);
+  }, []);
 
   const start = useCallback(
     async (kind: TransferKind, sourcePaths: string[], destDir: string): Promise<string> => {
@@ -112,5 +118,12 @@ export function useCopyOps(onComplete?: (op: CopyOp) => void) {
     [start],
   );
 
-  return { ops: Object.values(ops), startCopy, startMove };
+  const dismiss = useCallback((opId: string) => {
+    setOps((prev) => {
+      const { [opId]: _gone, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  return { ops: Object.values(ops), startCopy, startMove, dismiss };
 }
