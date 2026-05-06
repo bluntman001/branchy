@@ -488,6 +488,13 @@ export function FileBrowser({
     } catch (err) { toast.error(`Open failed: ${(err as Error).message}`); }
   };
 
+  const handleExtract = async (entry: FileEntry) => {
+    try {
+      const tool = await fileAPI.extractArchive(entry.path, currentPath);
+      toast.success(`Extracting with ${tool}…`);
+    } catch (err) { toast.error(`Extract failed: ${(err as Error).message}`); }
+  };
+
   const handleProperties = () => {
     const entry = getSelectedEntries()[0];
     if (!entry) return;
@@ -654,6 +661,7 @@ export function FileBrowser({
     onProperties: handleProperties,
     onNewFolder: handleCreateFolder,
     onOpenWith: handleOpenWith,
+    onExtract: handleExtract,
   };
 
   const thumbCellProps: VirtualThumbProps = {
@@ -684,6 +692,7 @@ export function FileBrowser({
     onProperties: handleProperties,
     onNewFolder: handleCreateFolder,
     onOpenWith: handleOpenWith,
+    onExtract: handleExtract,
   };
 
   return (
@@ -969,6 +978,7 @@ interface RowProps {
   onProperties: () => void;
   onNewFolder: () => void;
   onOpenWith: (exePath: string) => void;
+  onExtract?: () => void;
 }
 
 function DetailsRow({
@@ -976,7 +986,7 @@ function DetailsRow({
   onRowClick, onDoubleClick, onRightClick, onDragStart,
   onFolderDragOver, onFolderDragLeave, onFolderDrop,
   onRenameChange, onRenameCommit, onRenameCancel,
-  onOpen, onCut, onCopy, onPaste, onRename, onDelete, onCopyPath, onProperties, onNewFolder, onOpenWith,
+  onOpen, onCut, onCopy, onPaste, onRename, onDelete, onCopyPath, onProperties, onNewFolder, onOpenWith, onExtract,
 }: RowProps) {
   // Grid columns come from CSS vars set on the FileBrowser container
   const gridTemplate = '1fr var(--col-type) var(--col-size) var(--col-mod)';
@@ -998,6 +1008,7 @@ function DetailsRow({
       onProperties={onProperties}
       onNewFolder={onNewFolder}
       onOpenWith={onOpenWith}
+      onExtract={onExtract}
     >
       <div
         className="grid items-center relative"
@@ -1125,6 +1136,7 @@ interface ThumbCardProps {
   onProperties: () => void;
   onNewFolder: () => void;
   onOpenWith: (exePath: string) => void;
+  onExtract?: () => void;
 }
 
 // SVG intentionally excluded — show shell icon (e.g. Adobe Illustrator) rather than rendering SVG markup
@@ -1144,7 +1156,7 @@ function ThumbCard({
   onRowClick, onDoubleClick, onRightClick, onDragStart,
   onFolderDragOver, onFolderDragLeave, onFolderDrop,
   onRenameChange, onRenameCommit, onRenameCancel,
-  onOpen, onCut, onCopy, onPaste, onRename, onDelete, onCopyPath, onProperties, onNewFolder, onOpenWith,
+  onOpen, onCut, onCopy, onPaste, onRename, onDelete, onCopyPath, onProperties, onNewFolder, onOpenWith, onExtract,
 }: ThumbCardProps) {
   // Icons fill ~78% of card, matching Explorer-style thumbnail views.
   // Source is 256px from IShellItemImageFactory so downscaling stays crisp.
@@ -1175,6 +1187,7 @@ function ThumbCard({
       onProperties={onProperties}
       onNewFolder={onNewFolder}
       onOpenWith={onOpenWith}
+      onExtract={onExtract}
     >
       <div
         className="flex flex-col items-center cursor-default select-none"
@@ -1314,6 +1327,7 @@ interface VirtualDetailsProps {
   onProperties: () => void;
   onNewFolder: () => void;
   onOpenWith: (entry: FileEntry, exePath: string) => void;
+  onExtract: (entry: FileEntry) => void;
 }
 
 function VirtualDetailsRow({ index, style, ariaAttributes, ...p }: {
@@ -1356,6 +1370,7 @@ function VirtualDetailsRow({ index, style, ariaAttributes, ...p }: {
         onProperties={p.onProperties}
         onNewFolder={p.onNewFolder}
         onOpenWith={(exePath) => p.onOpenWith(entry, exePath)}
+        onExtract={() => p.onExtract(entry)}
       />
     </div>
   );
@@ -1389,6 +1404,7 @@ interface VirtualThumbProps {
   onProperties: () => void;
   onNewFolder: () => void;
   onOpenWith: (entry: FileEntry, exePath: string) => void;
+  onExtract: (entry: FileEntry) => void;
 }
 
 function VirtualThumbCell({ columnIndex, rowIndex, style, ariaAttributes, ...p }: {
@@ -1433,6 +1449,7 @@ function VirtualThumbCell({ columnIndex, rowIndex, style, ariaAttributes, ...p }
         onProperties={p.onProperties}
         onNewFolder={p.onNewFolder}
         onOpenWith={(exePath) => p.onOpenWith(entry, exePath)}
+        onExtract={() => p.onExtract(entry)}
       />
     </div>
   );
