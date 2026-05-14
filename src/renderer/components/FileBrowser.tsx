@@ -57,6 +57,13 @@ export function FileBrowser({
   const containerRef = useRef<HTMLDivElement>(null);
   const typeaheadBuf  = useRef('');
   const typeaheadLast = useRef(0);
+  const dragIconPath  = useRef<string>('');
+  // Resolve a guaranteed-local 1x1 PNG once. Passing a network-drive
+  // file path as the drag icon stalls Windows' SMB icon loader and
+  // crashes the native drag code.
+  useEffect(() => {
+    fileAPI.getDragIconPath().then((p) => { dragIconPath.current = p; }).catch(() => {});
+  }, []);
   const listRef = useListRef(null);
   const gridRef = useGridRef(null);
   const [sortField, setSortField]         = useState<SortField>('name');
@@ -542,11 +549,13 @@ export function FileBrowser({
     e.dataTransfer.effectAllowed = 'move';
     // External drag: hand the OS the actual file paths so they can be
     // dropped onto Chrome / Explorer / other apps as real files. The
-    // plugin's `icon` MUST be a valid file path — passing an empty
-    // string crashes the native loader. Use the first dragged file as
-    // the preview source; Windows extracts its shell icon for the
-    // drag-cursor hint.
-    startDrag({ item: paths, icon: paths[0] }).catch(() => { /* noop */ });
+    // plugin's `icon` MUST be a valid LOCAL file path — using the
+    // dragged file's own path crashes when it lives on a network share
+    // (SMB icon loader stalls inside DoDragDrop). The fallback 1x1 PNG
+    // is in %LOCALAPPDATA% so it always loads fast.
+    if (dragIconPath.current) {
+      startDrag({ item: paths, icon: dragIconPath.current }).catch(() => { /* noop */ });
+    }
   };
 
   // Window-level shortcuts so F2/Delete/etc. work even when focus is on the

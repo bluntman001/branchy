@@ -451,6 +451,36 @@ fn show_open_with_dialog(file_path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Ensure a known-local 1x1 PNG exists in app data and return its path.
+/// Used as the `icon` argument for tauri-plugin-drag — passing the dragged
+/// file's own path crashes when the file lives on an SMB/network share
+/// because Windows' icon loader stalls/fails over the wire and takes the
+/// native drag code with it. A guaranteed-local path avoids all that.
+#[tauri::command]
+fn get_drag_icon_path() -> Result<String, String> {
+    // Minimal valid 1x1 transparent RGBA PNG, ~70 bytes.
+    const ICON_BYTES: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+        0xAE, 0x42, 0x60, 0x82,
+    ];
+    let dir = dirs::data_local_dir()
+        .ok_or_else(|| "no local app data dir".to_string())?
+        .join("branchy");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("drag-icon.png");
+    if !path.exists() {
+        std::fs::write(&path, ICON_BYTES).map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn get_home_dir() -> String {
     dirs::home_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
@@ -522,6 +552,7 @@ pub fn run() {
             open_file_with,
             show_open_with_dialog,
             get_home_dir,
+            get_drag_icon_path,
             get_initial_path,
             get_special_paths,
         ])

@@ -76,6 +76,10 @@ export const fileAPI = {
     return invoke<string>('extract_archive', { archivePath, destDir });
   },
 
+  async getDragIconPath(): Promise<string> {
+    return invoke<string>('get_drag_icon_path');
+  },
+
   async createFolder(folderPath: string): Promise<void> {
     return invoke('create_folder', { folderPath });
   },

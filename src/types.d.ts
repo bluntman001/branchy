@@ -55,6 +55,7 @@ export interface FileAPI {
   watchDirectory(path: string): Promise<void>;
   unwatchDirectory(): Promise<void>;
   extractArchive(archivePath: string, destDir: string): Promise<string>;
+  getDragIconPath(): Promise<string>;
   createFolder(folderPath: string): Promise<void>;
   createFile(filePath: string): Promise<void>;
   searchFiles(rootPath: string, query: string): Promise<FileEntry[]>;
