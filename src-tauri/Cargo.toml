@@ -35,6 +35,10 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
     "Win32_Storage_FileSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }
@@ -44,6 +48,14 @@ trash = "5"
 # Without this, JPEG decode + resize is 10-20× slower in debug.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Patch tauri-plugin-drag's inner `drag` crate with our local fork that
+# adds NULL-pointer guards. The upstream crashes hard on NAS/UNC paths
+# because ILCreateFromPathW can return NULL and SHCreateShellItemArrayFromIDLists
+# happily dereferences it (Access Violation). Our fork falls back to the
+# CF_HDROP-only DataObject instead.
+[patch.crates-io]
+drag = { path = "vendor/drag" }
 
 [profile.release]
 lto = "fat"      # whole-program LTO (slowest link, smallest binary)

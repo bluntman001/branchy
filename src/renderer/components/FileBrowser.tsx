@@ -26,6 +26,20 @@ const DETAIL_ROW_H = 28;
 const DEFAULT_VIEW_POS = 0.42;
 const TYPEAHEAD_RESET_MS = 800;
 
+/**
+ * Test whether a Windows path lives on a local (fixed/removable) drive.
+ * UNC paths (`\\server\share\…`) are always non-local. For drive-letter
+ * paths we look the letter up in the cached set of local-drive letters
+ * collected at mount via `fileAPI.getDrives()`.
+ */
+function isLocalPath(path: string, localLetters: Set<string>): boolean {
+  if (path.startsWith('\\\\') || path.startsWith('//')) return false;
+  const m = /^([A-Za-z]):/.exec(path);
+  if (!m) return true; // No drive prefix — assume local (mac/linux paths).
+  return localLetters.has(m[1].toUpperCase());
+}
+
+
 interface FileBrowserProps {
   entries: FileEntry[];
   loading: boolean;
@@ -57,15 +71,23 @@ export function FileBrowser({
   const containerRef = useRef<HTMLDivElement>(null);
   const typeaheadBuf  = useRef('');
   const typeaheadLast = useRef(0);
-  const dragIconPath  = useRef<string>('');
-  // Resolve a guaranteed-local 1x1 PNG once. Passing a network-drive
-  // file path as the drag icon stalls Windows' SMB icon loader and
-  // crashes the native drag code.
-  useEffect(() => {
-    fileAPI.getDragIconPath().then((p) => { dragIconPath.current = p; }).catch(() => {});
-  }, []);
   const listRef = useListRef(null);
   const gridRef = useGridRef(null);
+  const dragIconPath = useRef<string>('');
+  const localDriveLetters = useRef<Set<string>>(new Set());
+  // Resolve a guaranteed-local 1x1 PNG once + cache local-drive letters
+  // so we can skip the external-drag plugin for network paths (which
+  // crashes its native code).
+  useEffect(() => {
+    fileAPI.getDragIconPath().then((p) => { dragIconPath.current = p; }).catch(() => {});
+    fileAPI.getDrives().then((drives) => {
+      localDriveLetters.current = new Set(
+        drives
+          .filter((d) => d.type === 'local' || d.type === 'removable')
+          .map((d) => d.letter.toUpperCase().replace(':', '')),
+      );
+    }).catch(() => {});
+  }, []);
   const [sortField, setSortField]         = useState<SortField>('name');
   const [sortDir, setSortDir]             = useState<SortDir>('asc');
   const [colWidths, setColWidths] = useState({ type: 80, size: 90, modified: 130 });
@@ -547,12 +569,10 @@ export function FileBrowser({
     // HTML5 dataTransfer (parsed by handleFolderDrop).
     e.dataTransfer.setData('application/filepilot', JSON.stringify(paths));
     e.dataTransfer.effectAllowed = 'move';
-    // External drag: hand the OS the actual file paths so they can be
-    // dropped onto Chrome / Explorer / other apps as real files. The
-    // plugin's `icon` MUST be a valid LOCAL file path — using the
-    // dragged file's own path crashes when it lives on a network share
-    // (SMB icon loader stalls inside DoDragDrop). The fallback 1x1 PNG
-    // is in %LOCALAPPDATA% so it always loads fast.
+    // External drag — works for local AND network paths. Our local fork
+    // of the drag crate (see src-tauri/vendor/drag) falls back to a
+    // CF_HDROP-only DataObject when the shell can't build an ITEMIDLIST
+    // for a path, instead of crashing on NULL dereference.
     if (dragIconPath.current) {
       startDrag({ item: paths, icon: dragIconPath.current }).catch(() => { /* noop */ });
     }
