@@ -535,13 +535,18 @@ export function FileBrowser({
       return;
     }
     const paths = selected.has(entry.path) ? [...selected] : [entry.path];
+    if (paths.length === 0) return;
     // Internal drag: keeps drop-onto-folder working inside the app via
     // HTML5 dataTransfer (parsed by handleFolderDrop).
     e.dataTransfer.setData('application/filepilot', JSON.stringify(paths));
     e.dataTransfer.effectAllowed = 'move';
     // External drag: hand the OS the actual file paths so they can be
-    // dropped onto Chrome / Explorer / other apps as real files.
-    startDrag({ item: paths, icon: '' }).catch(() => { /* noop */ });
+    // dropped onto Chrome / Explorer / other apps as real files. The
+    // plugin's `icon` MUST be a valid file path — passing an empty
+    // string crashes the native loader. Use the first dragged file as
+    // the preview source; Windows extracts its shell icon for the
+    // drag-cursor hint.
+    startDrag({ item: paths, icon: paths[0] }).catch(() => { /* noop */ });
   };
 
   // Window-level shortcuts so F2/Delete/etc. work even when focus is on the
