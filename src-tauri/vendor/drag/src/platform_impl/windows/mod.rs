@@ -439,8 +439,12 @@ fn get_hglobal(size: usize, buffer: Vec<u16>) -> Result<HGLOBAL> {
     let handle = unsafe { GlobalAlloc(GMEM_FIXED, size).unwrap() };
     let ptr = unsafe { GlobalLock(handle) };
 
-    let header = ptr as *mut DROPFILES;
     unsafe {
+        // GMEM_FIXED leaves memory uninitialised — zero the DROPFILES
+        // header before setting fields. Garbage pt/fNC values made some
+        // drop targets (notably VS Code) silently reject the drop.
+        std::ptr::write_bytes(ptr as *mut u8, 0, size);
+        let header = ptr as *mut DROPFILES;
         (*header).pFiles = std::mem::size_of::<DROPFILES>() as u32;
         (*header).fWide = BOOL(1);
         std::ptr::copy(
