@@ -253,7 +253,27 @@ impl IDataObject_Impl for DataObject {
     }
 
     fn EnumFormatEtc(&self, _dwdirection: u32) -> Result<IEnumFORMATETC> {
-        Err(Error::new(E_NOTIMPL, HSTRING::new()))
+        // Expose CF_HDROP + text/uri-list to drop targets that enumerate
+        // formats before deciding to accept. Some Chromium-based apps
+        // (VS Code in particular) won't accept a drop from a source that
+        // returns E_NOTIMPL here, even if QueryGetData/GetData would work.
+        let formats = [
+            FORMATETC {
+                cfFormat: CF_HDROP.0,
+                ptd: std::ptr::null_mut(),
+                dwAspect: DVASPECT_CONTENT.0,
+                lindex: -1,
+                tymed: TYMED_HGLOBAL.0 as u32,
+            },
+            FORMATETC {
+                cfFormat: uri_list_clipboard_format(),
+                ptd: std::ptr::null_mut(),
+                dwAspect: DVASPECT_CONTENT.0,
+                lindex: -1,
+                tymed: TYMED_HGLOBAL.0 as u32,
+            },
+        ];
+        unsafe { windows::Win32::UI::Shell::SHCreateStdEnumFmtEtc(&formats) }
     }
 
     fn DAdvise(
