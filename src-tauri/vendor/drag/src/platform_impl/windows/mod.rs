@@ -330,20 +330,14 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
                     paths.push(dunce::canonicalize(&f).unwrap_or(f));
                 }
 
-                // get_file_data_object goes through SHCreateShellItemArrayFromIDLists,
-                // which crashes (Access Violation) on network paths because
-                // ILCreateFromPathW returns NULL. Fall back to our own CF_HDROP
-                // DataObject — same format Windows Explorer uses, works on any path.
-                let data_object: IDataObject = match get_file_data_object(&paths) {
-                    Some(obj) => {
-                        log::info!("[drag] using shell IDataObject (BindToHandler)");
-                        obj
-                    }
-                    None => {
-                        log::info!("[drag] using fallback CF_HDROP DataObject");
-                        DataObject::new(paths.clone()).into()
-                    }
-                };
+                // Always use our own CF_HDROP + text/uri-list DataObject.
+                // The shell-bound alternative (via SHCreateShellItemArrayFromIDLists
+                // → BindToHandler) appears to corrupt COM/shell state after the
+                // first successful DoDragDrop: every subsequent drag in the same
+                // process returns E_FAIL. Our DataObject is stateless and works
+                // for every drag.
+                log::info!("[drag] using CF_HDROP + text/uri-list DataObject");
+                let data_object: IDataObject = DataObject::new(paths.clone()).into();
                 let drop_source: IDropSource = DropSource::new().into();
 
                 unsafe {
