@@ -40,13 +40,19 @@ mod image;
 static mut OLE_RESULT: Result<()> = Ok(());
 static OLE_UNINITIALIZE: Once = Once::new();
 fn init_ole() {
-    OLE_UNINITIALIZE.call_once(|| {
-        unsafe {
-            OLE_RESULT = OleInitialize(Some(std::ptr::null_mut()));
-        }
-        // I guess we never deinitialize for now?
-        // OleUninitialize
-    });
+    // Call OleInitialize on EVERY drag start, not just the first one.
+    // The original code used Once::call_once but that breaks subsequent
+    // drags when WebView2 (or any other COM-using subsystem) modifies
+    // the apartment state between our invocations. OleInitialize is
+    // idempotent — it returns S_FALSE (not an error) when COM is already
+    // initialized for the current thread, so calling it repeatedly is
+    // safe and cheap.
+    unsafe {
+        let r = OleInitialize(Some(std::ptr::null_mut()));
+        // Persist the first-time failure (if any) so callers can bail
+        // gracefully; otherwise mark success.
+        OLE_UNINITIALIZE.call_once(|| { OLE_RESULT = r.clone(); });
+    }
 }
 
 #[implement(IDataObject)]
@@ -301,10 +307,14 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
     on_drop_callback: F,
     options: Options,
 ) -> crate::Result<()> {
+    log::info!("[drag] start_drag entered");
     if let Ok(RawWindowHandle::Win32(_w)) = handle.window_handle().map(|h| h.as_raw()) {
         match item {
             DragItem::Files(files) => {
+                log::info!("[drag] files variant: {} paths", files.len());
+                for f in &files { log::info!("[drag]   path: {}", f.display()); }
                 init_ole();
+                log::info!("[drag] init_ole done");
                 unsafe {
                     #[allow(static_mut_refs)]
                     if let Err(e) = &OLE_RESULT {
@@ -325,8 +335,14 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
                 // ILCreateFromPathW returns NULL. Fall back to our own CF_HDROP
                 // DataObject — same format Windows Explorer uses, works on any path.
                 let data_object: IDataObject = match get_file_data_object(&paths) {
-                    Some(obj) => obj,
-                    None => DataObject::new(paths.clone()).into(),
+                    Some(obj) => {
+                        log::info!("[drag] using shell IDataObject (BindToHandler)");
+                        obj
+                    }
+                    None => {
+                        log::info!("[drag] using fallback CF_HDROP DataObject");
+                        DataObject::new(paths.clone()).into()
+                    }
                 };
                 let drop_source: IDropSource = DropSource::new().into();
 
@@ -347,8 +363,14 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
                     let _ = options.mode;
                     let effect = DROPEFFECT(DROPEFFECT_COPY.0 | DROPEFFECT_MOVE.0);
 
+                    log::info!("[drag] calling DoDragDrop, allowed={:?}", effect);
                     let drop_result =
                         DoDragDrop(&data_object, &drop_source, effect, &mut out_dropeffect);
+                    log::info!(
+                        "[drag] DoDragDrop returned hresult=0x{:08x} out_effect={:?}",
+                        drop_result.0,
+                        out_dropeffect,
+                    );
                     let mut pt = POINT { x: 0, y: 0 };
                     GetCursorPos(&mut pt)?;
                     if drop_result == DRAGDROP_S_DROP {
