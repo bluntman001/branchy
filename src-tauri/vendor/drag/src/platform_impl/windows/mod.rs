@@ -340,10 +340,12 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
                     }
 
                     let mut out_dropeffect = DROPEFFECT::default();
-                    let effect = match options.mode {
-                        DragMode::Copy => DROPEFFECT_COPY,
-                        DragMode::Move => DROPEFFECT_MOVE,
-                    };
+                    // Allow BOTH Copy and Move regardless of which mode the
+                    // caller preferred. Some drop targets (VS Code) won't
+                    // accept a drag source that allows only one effect when
+                    // they want the other. The destination app picks.
+                    let _ = options.mode;
+                    let effect = DROPEFFECT(DROPEFFECT_COPY.0 | DROPEFFECT_MOVE.0);
 
                     let drop_result =
                         DoDragDrop(&data_object, &drop_source, effect, &mut out_dropeffect);
