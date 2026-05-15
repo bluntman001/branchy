@@ -13,7 +13,8 @@ import {
   iconKey, getCached, isCached, fetchIconsBatch,
   getCachedThumb, requestThumb, onThumbProgress,
 } from '../utils/shellIcons';
-import { dirname, joinPath } from '../utils/path';
+import { basename, dirname, joinPath } from '../utils/path';
+import { useUndoStack } from '../hooks/useUndoStack';
 import { fileAPI } from '../../api';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { listen } from '@tauri-apps/api/event';
@@ -88,6 +89,8 @@ export function FileBrowser({
       );
     }).catch(() => {});
   }, []);
+  const { push: pushUndo, undo: runUndo } = useUndoStack(onRefresh);
+
   const [sortField, setSortField]         = useState<SortField>('name');
   const [sortDir, setSortDir]             = useState<SortDir>('asc');
   const [colWidths, setColWidths] = useState({ type: 80, size: 90, modified: 130 });
@@ -425,6 +428,7 @@ export function FileBrowser({
     if (newPath !== renaming.path) {
       try {
         await fileAPI.renameFile(renaming.path, newPath);
+        pushUndo({ kind: 'rename', oldPath: renaming.path, newPath });
         onRefresh();
         toast.success('Renamed');
       } catch (err) { toast.error(`Rename failed: ${(err as Error).message}`); }
@@ -475,12 +479,16 @@ export function FileBrowser({
   const handlePaste = async () => {
     if (!clipboard) return;
     try {
+      const snapshot = [...clipboard.paths];
+      const destDir = currentPath;
       if (clipboard.mode === 'copy') {
-        await onCopyAsync(clipboard.paths, currentPath);
+        await onCopyAsync(snapshot, destDir);
+        pushUndo({ kind: 'copy', destDir, names: snapshot.map(basename) });
       } else {
         // Async move: same-volume = instant rename, cross-volume = copy
         // with byte progress. UI never blocks either way.
-        await onMoveAsync(clipboard.paths, currentPath);
+        await onMoveAsync(snapshot, destDir);
+        pushUndo({ kind: 'move', sourcePaths: snapshot, destDir });
         setClipboard(null);
       }
     } catch (err) { toast.error(`Paste failed: ${(err as Error).message}`); }
@@ -494,8 +502,11 @@ export function FileBrowser({
     const name = window.prompt('New folder name:');
     if (!name) return;
     const folderPath = joinPath(currentPath, name);
-    try { await fileAPI.createFolder(folderPath); onRefresh(); }
-    catch (err) { toast.error(`Create folder failed: ${(err as Error).message}`); }
+    try {
+      await fileAPI.createFolder(folderPath);
+      pushUndo({ kind: 'createFolder', path: folderPath });
+      onRefresh();
+    } catch (err) { toast.error(`Create folder failed: ${(err as Error).message}`); }
   };
 
   const handleNewFile = async () => {
@@ -504,6 +515,7 @@ export function FileBrowser({
     const filePath = joinPath(currentPath, name);
     try {
       await fileAPI.createFile(filePath);
+      pushUndo({ kind: 'createFile', path: filePath });
       onRefresh();
       toast.success(`Created ${name}`);
     } catch (err) { toast.error(`Create file failed: ${(err as Error).message}`); }
@@ -607,6 +619,11 @@ export function FileBrowser({
       if (e.ctrlKey && e.key === 'c') { handleCopy(); return; }
       if (e.ctrlKey && e.key === 'x') { handleCut(); return; }
       if (e.ctrlKey && e.key === 'v') { handlePaste(); return; }
+      if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        runUndo();
+        return;
+      }
 
       // Type-ahead: printable single-char keys append to a buffer that
       // resets after TYPEAHEAD_RESET_MS of inactivity. We jump to the
