@@ -117,14 +117,27 @@ impl DataObject {
         }
     }
 
+    /// CF_HDROP — Windows native file-list format.
+    fn is_hdrop(pformatetc: *const FORMATETC) -> bool {
+        if let Some(f) = unsafe { pformatetc.as_ref() } {
+            f.tymed as i32 == TYMED_HGLOBAL.0
+                && f.cfFormat == CF_HDROP.0
+                && f.dwAspect == DVASPECT_CONTENT.0
+        } else { false }
+    }
+
+    /// `text/uri-list` — registered clipboard format Chromium-based apps
+    /// (VS Code, Chrome, Edge) prefer for cross-platform drag-drop.
+    fn is_uri_list(pformatetc: *const FORMATETC) -> bool {
+        if let Some(f) = unsafe { pformatetc.as_ref() } {
+            f.tymed as i32 == TYMED_HGLOBAL.0
+                && f.cfFormat == uri_list_clipboard_format()
+                && f.dwAspect == DVASPECT_CONTENT.0
+        } else { false }
+    }
+
     fn is_supported_format(pformatetc: *const FORMATETC) -> bool {
-        if let Some(format_etc) = unsafe { pformatetc.as_ref() } {
-            !(format_etc.tymed as i32 != TYMED_HGLOBAL.0
-                || format_etc.cfFormat != CF_HDROP.0
-                || format_etc.dwAspect != DVASPECT_CONTENT.0)
-        } else {
-            false
-        }
+        Self::is_hdrop(pformatetc) || Self::is_uri_list(pformatetc)
     }
 
     fn clone_drop_hglobal(&self) -> Result<HGLOBAL> {
@@ -138,17 +151,66 @@ impl DataObject {
         let handle = get_hglobal(size, buffer)?;
         Ok(handle)
     }
+
+    /// Build an HGLOBAL containing UTF-8 `file:///…` URIs separated by CRLF.
+    fn build_uri_list_hglobal(&self) -> Result<HGLOBAL> {
+        let mut s = String::new();
+        for path in &self.files {
+            let p = path.to_string_lossy().replace('\\', "/");
+            // file:// scheme: 3 slashes for absolute paths with drive letter
+            // (file:///C:/...), 2 slashes for UNC (file://server/share/...).
+            if let Some(rest) = p.strip_prefix("//") {
+                s.push_str("file://");
+                s.push_str(rest);
+            } else {
+                s.push_str("file:///");
+                s.push_str(&p);
+            }
+            s.push_str("\r\n");
+        }
+        let bytes = s.into_bytes();
+        let size = bytes.len() + 1;
+        unsafe {
+            let handle = GlobalAlloc(GMEM_FIXED, size)?;
+            let ptr = GlobalLock(handle) as *mut u8;
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+            *ptr.add(bytes.len()) = 0;
+            let _ = GlobalUnlock(handle);
+            Ok(handle)
+        }
+    }
+}
+
+/// Cached `RegisterClipboardFormatW("text/uri-list")` result. Returns the
+/// dynamic clipboard format ID Windows assigns to that MIME string.
+fn uri_list_clipboard_format() -> u16 {
+    use std::sync::OnceLock;
+    use windows::core::PCWSTR;
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+    static FMT: OnceLock<u16> = OnceLock::new();
+    *FMT.get_or_init(|| unsafe {
+        let wide: Vec<u16> = "text/uri-list".encode_utf16().chain(once(0)).collect();
+        RegisterClipboardFormatW(PCWSTR::from_raw(wide.as_ptr())) as u16
+    })
 }
 
 #[allow(non_snake_case)]
 impl IDataObject_Impl for DataObject {
     fn GetData(&self, pformatetc: *const FORMATETC) -> Result<STGMEDIUM> {
         unsafe {
-            if Self::is_supported_format(pformatetc) {
+            if Self::is_hdrop(pformatetc) {
                 Ok(STGMEDIUM {
                     tymed: TYMED_HGLOBAL.0 as u32,
                     u: STGMEDIUM_0 {
                         hGlobal: self.clone_drop_hglobal()?,
+                    },
+                    pUnkForRelease: std::mem::ManuallyDrop::new(None),
+                })
+            } else if Self::is_uri_list(pformatetc) {
+                Ok(STGMEDIUM {
+                    tymed: TYMED_HGLOBAL.0 as u32,
+                    u: STGMEDIUM_0 {
+                        hGlobal: self.build_uri_list_hglobal()?,
                     },
                     pUnkForRelease: std::mem::ManuallyDrop::new(None),
                 })
